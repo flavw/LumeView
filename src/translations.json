@@ -1258,5 +1258,181 @@
   "Text background transparency": [
     "Transparencia del fondo del texto",
     "Transparence du fond du texte"
+  ],
+  "Editing": [
+    "Edición",
+    "Édition"
+  ],
+  "Brush": [
+    "Pincel",
+    "Pinceau"
+  ],
+  "Paint bucket": [
+    "Bote de pintura",
+    "Pot de peinture"
+  ],
+  "Spot healing": [
+    "Corrección puntual",
+    "Correcteur localisé"
+  ],
+  "Rectangle": [
+    "Rectángulo",
+    "Rectangle"
+  ],
+  "Ellipse": [
+    "Elipse",
+    "Ellipse"
+  ],
+  "Size (image pixels)": [
+    "Tamaño (píxeles de imagen)",
+    "Taille (pixels de l’image)"
+  ],
+  "Hardness": [
+    "Dureza",
+    "Dureté"
+  ],
+  "Tolerance": [
+    "Tolerancia",
+    "Tolérance"
+  ],
+  "Fill shape": [
+    "Rellenar forma",
+    "Remplir la forme"
+  ],
+  "Shift: square or circle": [
+    "Mayús: cuadrado o círculo",
+    "Maj : carré ou cercle"
+  ],
+  "Ctrl+Z undo · Ctrl+J redo": [
+    "Ctrl+Z deshacer · Ctrl+J rehacer",
+    "Ctrl+Z annuler · Ctrl+J rétablir"
+  ],
+  "Use spot healing on a smaller area.": [
+    "Use la corrección puntual en un área menor.",
+    "Utilisez le correcteur sur une zone plus petite."
+  ],
+  "Paint dialog": [
+    "Panel de pintura",
+    "Panneau de peinture"
+  ],
+  "Eyedropper": [
+    "Cuentagotas",
+    "Pipette"
+  ],
+  "Arrow": [
+    "Flecha",
+    "Flèche"
+  ],
+  "Clone stamp": [
+    "Tampón de clonar",
+    "Tampon de duplication"
+  ],
+  "Alt+click sets the clone source.": [
+    "Alt+clic establece el origen de clonación.",
+    "Alt+clic définit la source de duplication."
+  ],
+  "JPEG / WebP quality": [
+    "Calidad JPEG / WebP",
+    "Qualité JPEG / WebP"
+  ],
+  "Line": [
+    "Línea",
+    "Ligne"
+  ],
+  "Select and move": [
+    "Seleccionar y mover",
+    "Sélectionner et déplacer"
+  ],
+  "Text": [
+    "Texto",
+    "Texte"
+  ],
+  "Type your text": [
+    "Escriba el texto",
+    "Saisissez votre texte"
+  ],
+  "Choose font": [
+    "Elegir fuente",
+    "Choisir une police"
+  ],
+  "Could not load the font.": [
+    "No se pudo cargar la fuente.",
+    "Impossible de charger la police."
+  ],
+  "Choose a font file.": [
+    "Elija un archivo de fuente.",
+    "Choisissez un fichier de police."
+  ],
+  "The text is too large. Reduce its size or split it into lines.": [
+    "El texto es demasiado grande. Reduzca su tamaño o divídalo en líneas.",
+    "Le texte est trop grand. Réduisez sa taille ou répartissez-le sur plusieurs lignes."
+  ],
+  "Effects": [
+    "Efectos",
+    "Effets"
+  ],
+  "Black and white": [
+    "Blanco y negro",
+    "Noir et blanc"
+  ],
+  "Sepia": [
+    "Sepia",
+    "Sépia"
+  ],
+  "Negative": [
+    "Negativo",
+    "Négatif"
+  ],
+  "Brightness and contrast": [
+    "Brillo y contraste",
+    "Luminosité et contraste"
+  ],
+  "Brightness": [
+    "Brillo",
+    "Luminosité"
+  ],
+  "Contrast": [
+    "Contraste",
+    "Contraste"
+  ],
+  "Saturation": [
+    "Saturación",
+    "Saturation"
+  ],
+  "Warm or cool tones": [
+    "Tonos cálidos o fríos",
+    "Tons chauds ou froids"
+  ],
+  "Temperature": [
+    "Temperatura",
+    "Température"
+  ],
+  "Negative: cool · Positive: warm": [
+    "Negativo: frío · Positivo: cálido",
+    "Négatif : froid · Positif : chaud"
+  ],
+  "Posterize": [
+    "Posterizar",
+    "Postériser"
+  ],
+  "Levels per channel": [
+    "Niveles por canal",
+    "Niveaux par canal"
+  ],
+  "Alt + right-drag": [
+    "Alt + arrastrar con botón derecho",
+    "Alt + glisser avec le bouton droit"
+  ],
+  "Hand": [
+    "Mano",
+    "Main"
+  ],
+  "In Paint dialog: brush / hand / spot healing / rectangle": [
+    "En el panel de pintura: pincel / mano / corrector puntual / rectángulo",
+    "Dans le panneau de peinture : pinceau / main / correcteur localisé / rectangle"
+  ],
+  "Adjust size: brush, clone stamp and spot healing; hardness: brush only": [
+    "Ajustar tamaño: pincel, tampón y corrector puntual; dureza: solo pincel",
+    "Régler la taille : pinceau, tampon et correcteur localisé ; dureté : pinceau uniquement"
   ]
 }

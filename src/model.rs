@@ -438,3 +438,37 @@ mod display_tests {
         }
     }
 }
+
+/// Keep the displayed image point beneath the pointer fixed, within panning bounds.
+/// Coordinates are in the rotated display plane, so this also handles stretched views.
+pub fn anchored_zoom_pan(pointer: (f32,f32), old_min: (f32,f32), old_size: (f32,f32),
+    new_size: (f32,f32), center: (f32,f32), view: (f32,f32)) -> (f32,f32) {
+    fn axis(pointer:f32, old_min:f32, old_size:f32, new_size:f32, center:f32, view:f32) -> f32 {
+        let relative=(pointer-old_min)/old_size.max(0.001);
+        let limit=((new_size-view)*0.5).max(0.0);
+        (pointer+(0.5-relative)*new_size-center).clamp(-limit,limit)
+    }
+    (axis(pointer.0,old_min.0,old_size.0,new_size.0,center.0,view.0),
+     axis(pointer.1,old_min.1,old_size.1,new_size.1,center.1,view.1))
+}
+#[cfg(test)]
+mod anchored_zoom_tests {
+    use super::*;
+    #[test]
+    fn pointer_stays_on_same_point_even_with_different_axis_scales() {
+        let pointer=(300.0,250.0);
+        let old_min=(-200.0,-150.0);
+        let old_size=(1600.0,1200.0);
+        let new_size=(2000.0,1800.0);
+        let center=(400.0,300.0);
+        let pan=anchored_zoom_pan(pointer,old_min,old_size,new_size,center,(800.0,600.0));
+        let new_min=(center.0+pan.0-new_size.0/2.0,center.1+pan.1-new_size.1/2.0);
+        assert!(((pointer.0-new_min.0)/new_size.0-(pointer.0-old_min.0)/old_size.0).abs()<0.00001);
+        assert!(((pointer.1-new_min.1)/new_size.1-(pointer.1-old_min.1)/old_size.1).abs()<0.00001);
+    }
+    #[test]
+    fn shrinking_respects_edges_and_centers_small_images() {
+        assert_eq!(anchored_zoom_pan((0.0,0.0),(0.0,0.0),(800.0,600.0),(400.0,300.0),(400.0,300.0),(800.0,600.0)),(0.0,0.0));
+        assert_eq!(anchored_zoom_pan((800.0,600.0),(-200.0,-150.0),(1600.0,1200.0),(1000.0,800.0),(400.0,300.0),(800.0,600.0)),(100.0,100.0));
+    }
+}

@@ -3,16 +3,16 @@ use eframe::egui;
 pub const DISPLAY_SIZE: f32 = 256.0;
 
 #[derive(Clone, Copy)]
-pub enum Kind { Delete, Save, Rename, Shortcuts, Preferences }
+pub enum Kind { Delete, Rename, Shortcuts, Preferences, Batch }
 
 impl Kind {
     fn index(self) -> usize { self as usize }
     fn bytes(self) -> &'static [u8] {
         match self {
             Self::Delete => include_bytes!("../assets/dialogs/lume-delete.webp"),
-            Self::Save => include_bytes!("../assets/dialogs/lume-save.webp"),
             Self::Rename => include_bytes!("../assets/dialogs/lume-rename.webp"),
             Self::Shortcuts => include_bytes!("../assets/dialogs/lume-shortcuts.webp"),
+            Self::Batch => include_bytes!("../assets/dialogs/lume-batch.webp"),
             Self::Preferences => include_bytes!("../assets/dialogs/lume-preferences.webp"),
         }
     }
@@ -39,7 +39,7 @@ mod tests {
     use super::*;
     #[test]
     fn all_artwork_is_transparent_webp_and_texture_loading_is_lazy() {
-        for kind in [Kind::Delete,Kind::Save,Kind::Rename,Kind::Shortcuts,Kind::Preferences] {
+        for kind in [Kind::Delete,Kind::Rename,Kind::Shortcuts,Kind::Preferences,Kind::Batch] {
             assert_eq!(image::guess_format(kind.bytes()).unwrap(), image::ImageFormat::WebP);
             let image=image::load_from_memory(kind.bytes()).unwrap().into_rgba8();
             assert_eq!(image.dimensions(),(512,512));
@@ -48,9 +48,9 @@ mod tests {
         let ctx=egui::Context::default();
         let mut cache=Cache::default();
         assert_eq!(cache.textures.iter().flatten().count(),0);
-        let first=cache.texture(&ctx,Kind::Save);
+        let first=cache.texture(&ctx,Kind::Delete);
         assert_eq!(first.size(),[512,512]);
-        assert_eq!(cache.texture(&ctx,Kind::Save).id(),first.id());
+        assert_eq!(cache.texture(&ctx,Kind::Delete).id(),first.id());
         assert_eq!(cache.textures.iter().flatten().count(),1);
     }
 }

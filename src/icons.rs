@@ -234,3 +234,29 @@ pub fn invert_ratio_button(ui: &mut egui::Ui) -> egui::Response {
     }
     response.on_hover_text(crate::i18n::t("Inverter proporção"))
 }
+
+const PAINT_SVGS:[&str;13]=[
+ include_str!("../assets/icons/paint-brush.svg"),include_str!("../assets/icons/paint-bucket.svg"),
+ include_str!("../assets/icons/paint-heal.svg"),include_str!("../assets/icons/paint-rectangle.svg"),
+ include_str!("../assets/icons/paint-ellipse.svg"),include_str!("../assets/icons/paint-eyedropper.svg"),
+ include_str!("../assets/icons/paint-arrow.svg"),include_str!("../assets/icons/paint-clone.svg"),include_str!("../assets/icons/paint-line.svg"),include_str!("../assets/icons/paint-select.svg"),include_str!("../assets/icons/paint-crop.svg"),include_str!("../assets/icons/paint-text.svg"),include_str!("../assets/icons/paint-hand.svg")];
+struct PaintPath { points:Vec<Pos2>,filled:bool,dark:bool }
+fn paint_paths(svg:&str)->Vec<PaintPath>{
+ svg.split('<').filter(|tag|tag.starts_with("polygon ")||tag.starts_with("polyline ")).map(|tag|PaintPath{points:points(tag),filled:tag.starts_with("polygon "),dark:tag.contains("#444444")}).collect()
+}
+/// Render the embedded SVG polygon/polyline subset directly; no bitmap rasterizer.
+pub fn paint_icon(ui:&egui::Ui,rect:egui::Rect,index:usize){
+ static PATHS:std::sync::OnceLock<Vec<Vec<PaintPath>>>=std::sync::OnceLock::new();
+ let icons=PATHS.get_or_init(||PAINT_SVGS.iter().map(|svg|paint_paths(svg)).collect());
+ let scale=rect.width()/24.0;
+ for path in &icons[index]{
+  let points=path.points.iter().map(|p|rect.min+p.to_vec2()*scale).collect();
+  let color=if path.dark{egui::Color32::from_gray(68)}else{ui.visuals().text_color()};
+  if path.filled{ui.painter().add(egui::Shape::convex_polygon(points,color,Stroke::NONE));}
+  else{ui.painter().add(egui::Shape::line(points,Stroke::new(1.7_f32*scale,color)));}
+ }
+}
+#[cfg(test)] mod paint_tests {
+ use super::*;
+ #[test] fn all_paint_svg_paths_are_valid(){for svg in PAINT_SVGS {let paths=paint_paths(svg);assert!(!paths.is_empty());for path in paths {assert!(path.points.len()>=2);assert!(path.points.iter().all(|p|p.x>=0.0&&p.x<=24.0&&p.y>=0.0&&p.y<=24.0));}}}
+}

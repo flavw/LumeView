@@ -22,14 +22,17 @@ The EXE installer downloaded from GitHub is unsigned, so Windows SmartScreen may
 - Animated GIF playback with frame timing and loop counts; pause via View.
 - SVG/SVGZ viewing through the bundled ImageMagick renderer (rasterized for display).
 - Fullscreen title visibility is remembered, with an adjustable translucent black background (75% transparency by default).
-- Lume mascot illustrations load on demand in Save, Delete, Rename, Preferences and Shortcuts dialogs.
+- Lume mascot illustrations load on demand in Delete, Rename, Preferences and Shortcuts dialogs.
 - Fullscreen menus and toolbar fade in at the top-left corner and hide after three seconds away from the controls.
 - Batch resizing by pixels or percentage, with optional aspect-ratio preservation and original-format output. Batch naming supports a base name, digit count and starting number.
 - Customizable primary shortcuts under Edit → Preferences → Shortcuts, with conflict validation and default restoration.
 - Optional top-left alignment for images larger than the viewport, available under Preferences → Viewing. Press C to switch between centered and top-left zoom; the preference is saved.
+- Optional Paint dialog (F12): brush, clone stamp, spot healing, fill, shapes, arrows, text, selections and a hand tool. Supports undo/redo; editing resources load only when used.
+- Image effects: black and white, sepia, negative, brightness/contrast, saturation, warm/cool tones and posterization.
+- Ctrl+wheel or Alt+wheel zooms around the mouse pointer.
 - Wallpaper crops: Free, 1:1, 16:9, 9:16, 10:16, 8:16, original and custom aspect ratios; rule-of-thirds grid and resizable handles.
 - Lossless JPEG cropping and rotation through jpegtran. Numbered copies preserve the source; imperfect rotations are rejected.
-- JPEG and WebP export at quality 80 by default, configurable quality, and lossless PNG export.
+- Save Image (Ctrl+S) opens the native Windows Save As dialog with JPEG, PNG and WebP filters and an inline 1–100% JPEG/WebP quality selector. PNG remains lossless. JPEG and WebP export default to quality 80.
 - Create horizontal or vertical panoramas with ordered images, original sizes and an optional colored gap (zero by default). The result opens as a new document for saving.
 - AI generation metadata inspection and copying, including supported Stable Diffusion parameters and ComfyUI JSON stored in PNG, JPEG and WebP metadata.
 - Image information, clipboard images, rename with separate extension field, file copying/moving and deletion confirmation.

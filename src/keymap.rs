@@ -32,7 +32,7 @@ pub fn validation(map: &BTreeMap<String,String>) -> bool {
         let Some(binding)=parse(map.get(*default).map(String::as_str).unwrap_or(default)) else {return false;};
         if assigned.iter().any(|previous| same(*previous,binding)) {return false;}
         let key=binding.0;
-        if matches!(key,Key::Escape|Key::Enter|Key::Tab|Key::ArrowLeft|Key::ArrowRight|Key::ArrowUp|Key::ArrowDown|Key::Space|Key::Backspace|Key::Delete|Key::Home|Key::End|Key::PageUp|Key::PageDown|Key::Num0|Key::Num1|Key::Num2|Key::Num3|Key::Num4|Key::Num5|Key::Num6|Key::Num7|Key::Num8|Key::Num9|Key::Plus|Key::Minus|Key::Equals|Key::F6|Key::F11)
+        if matches!(key,Key::Escape|Key::Enter|Key::Tab|Key::ArrowLeft|Key::ArrowRight|Key::ArrowUp|Key::ArrowDown|Key::Space|Key::Backspace|Key::Delete|Key::Home|Key::End|Key::PageUp|Key::PageDown|Key::Num0|Key::Num1|Key::Num2|Key::Num3|Key::Num4|Key::Num5|Key::Num6|Key::Num7|Key::Num8|Key::Num9|Key::Plus|Key::Minus|Key::Equals|Key::F6|Key::F11|Key::F12)
             || same(binding,parse("Ctrl+C").unwrap()) || same(binding,parse("Ctrl+V").unwrap()) || same(binding,parse("Ctrl+X").unwrap())
             || matches!(key,Key::Copy|Key::Cut|Key::Paste|Key::Insert)
             || ["Ctrl+A","Ctrl+H","Ctrl+N","Ctrl+Shift+L","T","U"].iter().any(|s|same(binding,parse(s).unwrap())) {return false;}

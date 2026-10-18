@@ -1,5 +1,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod backend;
+mod text_layer;
+mod save_dialog;
+mod paint;
+mod effects;
+mod editor;
 mod dialog_art;
 mod batch;
 mod animation;
@@ -130,6 +135,7 @@ enum PendingAction {
 }
 
 enum Dialog {
+    Effect(effects::Adjustment),
     GoTo(String,bool),
     Panorama { files: Vec<panorama::Input>, vertical: bool, gap: String, color: [u8;3] },
     ManualRatio {
@@ -181,6 +187,7 @@ enum Dialog {
     Overwrite(PathBuf, Format),
 }
 enum Message {
+    Painted(Arc<RgbaImage>,backend::Result<RgbaImage>),
     Animation(u64, Result<animation::Animation,String>),
     Panorama(backend::Result<RgbaImage>),
     Book(backend::Result<Arc<comic::Book>>),
@@ -196,6 +203,7 @@ enum Message {
 }
 
 struct App {
+    editor: editor::Editor,
     animation: Option<animation::Animation>,
     animation_generation: u64,
     animation_index: usize,
@@ -281,6 +289,7 @@ impl App {
         });
         let (tx, rx) = mpsc::channel();
         let mut app = Self {
+            editor: editor::Editor::new(),
             animation: None,
             animation_generation: 0,
             animation_index: 0,
@@ -629,6 +638,10 @@ impl App {
                         Err(e) => self.fail(e),
                     }
                 }
+                Message::Painted(source,result) => {
+                    self.busy=false;
+                    if self.image.as_ref().is_some_and(|current|Arc::ptr_eq(current,&source)) {match result {Ok(pixels)=>self.commit_paint(ctx,pixels),Err(error)=>self.fail(t(&error))}}
+                }
                 Message::Panorama(result) => {
                     self.busy = false;
                     match result {
@@ -893,6 +906,23 @@ impl App {
             });
         }
     }
+    fn select_entire_image(&mut self) {
+        let (w, h) = self.dimensions();
+        let entire = Crop { x: 0, y: 0, w, h };
+        self.selection = if self.selection == Some(entire) { None } else { Some(entire) };
+    }
+    fn apply_effect(&mut self, ctx: &egui::Context, effect: effects::Effect) {
+        if self.busy { return; }
+        let Some(source) = self.image.clone() else { return; };
+        self.busy = true;
+        let tx = self.tx.clone();
+        let context = ctx.clone();
+        std::thread::spawn(move || {
+            let pixels = effects::apply(&source, effect);
+            let _ = tx.send(Message::Painted(source, Ok(pixels)));
+            context.request_repaint();
+        });
+    }
     fn edit(&mut self, ctx: &egui::Context, f: impl FnOnce(&RgbaImage) -> RgbaImage) {
         self.animation=None;
         self.animation_generation=self.animation_generation.wrapping_add(1);
@@ -920,6 +950,15 @@ impl App {
             self.pan = Vec2::ZERO;
             self.update_texture(ctx);
         }
+    }
+    fn commit_paint(&mut self, ctx: &egui::Context, pixels:RgbaImage) {
+        if let Some(old)=self.image.replace(Arc::new(pixels)) {
+            self.history.push((old,self.dirty));
+            while self.history.len()>1 && (self.history.len()>8 || self.history.iter().map(|(im,_)|im.as_raw().len()).sum::<usize>()>256*1024*1024) {self.history.remove(0);}
+        }
+        self.redo.clear();self.dirty=true;self.selection=None;
+        self.animation=None;self.animation_generation=self.animation_generation.wrapping_add(1);
+        self.update_texture(ctx);
     }
     fn apply_crop(&mut self, ctx: &egui::Context) {
         if self.fullscreen {
@@ -1026,6 +1065,20 @@ impl App {
         } else {
             self.settings.jpeg_quality
         };
+        if cfg!(windows) {
+            match save_dialog::choose(self.path.as_deref(),format,quality) {
+                Ok(Some(choice))=>{
+                    if choice.format==Format::Jpeg {self.settings.jpeg_quality=choice.quality;}
+                    if choice.format==Format::Webp {self.settings.webp_quality=choice.quality;}
+                    let pixels=self.image.clone().unwrap();let tx=self.tx.clone();let context=self.loader.context();
+                    self.busy=true;
+                    std::thread::spawn(move||{let result=backend::export(&pixels,&choice.path,choice.format,choice.quality);let _=tx.send(Message::Saved(choice.path,result));context.request_repaint();});
+                }
+                Ok(None)=>{},
+                Err(error)=>self.fail(error),
+            }
+            return;
+        }
         self.dialog = Some(Dialog::SaveAs { format, quality });
     }
 
@@ -1103,6 +1156,19 @@ impl App {
             self.align_view = true;
         }
         self.show_zoom_notice();
+    }
+    fn zoom_at_pointer(&mut self, factor: f32, pointer: Pos2) {
+        let old = self.shown;
+        if old.width() <= 0.0 || old.height() <= 0.0 { return; }
+        self.zoom_by(factor);
+        let (w,h) = self.view_dimensions();
+        let (sx,sy) = model::display_scale(self.fit,(w,h),(self.canvas.width(),self.canvas.height()),self.zoom,self.pixel_ratio);
+        let (x,y) = model::anchored_zoom_pan(
+            (pointer.x,pointer.y),(old.left(),old.top()),(old.width(),old.height()),
+            (w as f32*sx,h as f32*sy),
+            (self.canvas.center().x,self.canvas.center().y),(self.canvas.width(),self.canvas.height()));
+        self.pan = Vec2::new(x,y);
+        self.align_view = false;
     }
     fn toggle_zoom_alignment(&mut self) {
         self.settings.zoom_top_left = !self.settings.zoom_top_left;
@@ -1431,8 +1497,20 @@ impl App {
                 }
                 continue;
             }
+            if key==Key::F12 && !m.ctrl && !m.alt && !m.shift && !repeat {
+                if !self.busy && self.editor.start.is_none(){self.editor.enabled=!self.editor.enabled;}
+                continue;
+            }
             if ctx.wants_keyboard_input() {
                 continue;
+            }
+            if self.editor.enabled && !self.fullscreen {
+                if let Some(tool) = editor::shortcut_tool(key,m) {
+                    if !self.busy && self.loading.is_none() && self.editor.start.is_none() && !self.editor.pending() {
+                        self.editor.tool = tool;
+                    }
+                    continue;
+                }
             }
             let Some((key,m))=keymap::remap(key,m,&self.settings.shortcuts) else {continue;};
             if self.slide && self.paused {
@@ -1494,7 +1572,6 @@ impl App {
                         | Key::Num8
                         | Key::Num9
                         | Key::F5
-                        | Key::U
                         | Key::O
                         | Key::F1
                 )
@@ -1514,14 +1591,7 @@ impl App {
                 match key {
                     Key::O => self.choose_open(),
                     Key::P if cfg!(windows) => self.print_image(ctx),
-                    Key::A => {
-                        let (w, h) = self.dimensions();
-                        if self.selection == Some(Crop { x: 0, y: 0, w, h }) {
-                            self.selection = None;
-                        } else {
-                            self.selection = Some(Crop { x: 0, y: 0, w, h });
-                        }
-                    }
+                    Key::A => self.select_entire_image(),
                     Key::C | Key::Insert => self.clipboard_copy(),
                     Key::V => self.clipboard_paste(ctx),
                     Key::Y => self.apply_crop(ctx),
@@ -1531,11 +1601,7 @@ impl App {
                     Key::H => {
                         self.set_fit(Fit::Original);
                     }
-                    Key::G => self.edit(ctx, |im| {
-                        image::DynamicImage::ImageRgba8(im.clone())
-                            .grayscale()
-                            .to_rgba8()
-                    }),
+                    Key::G => self.apply_effect(ctx, effects::Effect::Grayscale),
                     Key::R => {
                         let (w, h) = self.dimensions();
                         self.dialog = Some(Dialog::Resize(w.to_string(), h.to_string(), true));
@@ -1605,7 +1671,7 @@ impl App {
                             ));
                         }
                     }
-                    Key::F5 | Key::U => {
+                    Key::F5 => {
                         if let Some(p) = self.source_path() {
                             self.open(p);
                         }
@@ -1737,7 +1803,7 @@ impl App {
                     })
                     .sum::<f32>();
                 ui.set_width(if self.settings.show_toolbar {
-                    10.0 * 30.0
+                    9.0 * 30.0
                 } else {
                     menu_width
                 });
@@ -1746,7 +1812,7 @@ impl App {
                     .fill(ui.visuals().panel_fill)
                     .inner_margin(egui::Margin::symmetric(4, 2))
                     .show(ui, |ui| {
-                        if self.busy || self.loading.is_some() {
+                        if self.busy || self.loading.is_some() || self.editor.pending() {
                             ui.disable();
                         }
                         egui::menu::bar(ui, |ui| {
@@ -1925,13 +1991,25 @@ impl App {
                                     self.edit(ctx, image::imageops::flip_vertical);
                                 }
                                 });
-                                if item(ui, "Escala de cinza", "Ctrl+G") {
-                                    self.edit(ctx, |im| {
-                                        image::DynamicImage::ImageRgba8(im.clone())
-                                            .grayscale()
-                                            .to_rgba8()
-                                    });
-                                }
+                                ui.menu_button(t("Efeitos"), |ui| {
+                                    if item(ui, "Preto e branco", "Ctrl+G") {
+                                        self.apply_effect(ctx, effects::Effect::Grayscale);
+                                    }
+                                    if item(ui, "Sépia", "") {
+                                        self.apply_effect(ctx, effects::Effect::Sepia);
+                                    }
+                                    if item(ui, "Negativo", "") { self.apply_effect(ctx, effects::Effect::Negative); }
+                                    for (label, effect) in [
+                                        ("Brilho e contraste", effects::Effect::BrightnessContrast { brightness: 0.0, contrast: 0.0 }),
+                                        ("Saturação", effects::Effect::Saturation(100.0)),
+                                        ("Tons quentes ou frios", effects::Effect::Temperature(0.0)),
+                                        ("Posterizar", effects::Effect::Posterize(4)),
+                                    ] {
+                                        if item(ui, label, "") {
+                                            if let Some(image) = &self.image { self.dialog = Some(Dialog::Effect(effects::Adjustment::new(image, effect))); }
+                                        }
+                                    }
+                                });
                                 if item(ui, "Redimensionar", "Ctrl+R") {
                                     let (w, h) = self.dimensions();
                                     self.dialog = Some(Dialog::Resize(w.to_string(), h.to_string(), true));
@@ -1943,6 +2021,7 @@ impl App {
                                     &mut self.settings.show_toolbar,
                                     t("Barra de ferramentas"),
                                 );
+                                ui.checkbox(&mut self.editor.enabled,format!("{} (F12)",t("Painel de pintura")));
                                 ui.checkbox(
                                     &mut self.settings.show_status_bar,
                                     t("Barra de status"),
@@ -2000,8 +2079,12 @@ impl App {
                                 });
                             });
                             ui.menu_button(t("Ajuda"), |ui| {
-                                ui.set_min_width(150.0);
                                 ui.style_mut().wrap_mode=Some(egui::TextWrapMode::Extend);
+                                let font=egui::TextStyle::Button.resolve(ui.style());
+                                let measure=|text:String|ui.painter().layout_no_wrap(text,font.clone(),ui.visuals().text_color()).size().x;
+                                let width=(measure(t("Atalhos"))+measure(keymap::current_label("F1"))+ui.spacing().item_spacing.x)
+                                    .max(measure(t("Sobre")))+2.0*ui.spacing().button_padding.x+4.0;
+                                ui.set_width(width);
                                 if item(ui, "Atalhos", "F1") {
                                     self.dialog = Some(Dialog::Help);
                                 }
@@ -2026,7 +2109,7 @@ impl App {
             .show(ctx, |ui| {
                 self.menu_visuals(ui);
                 if self.fullscreen {ui.set_opacity(self.fullscreen_chrome_opacity);}
-                ui.set_width(10.0 * 30.0);
+                ui.set_width(9.0 * 30.0);
                 ui.spacing_mut().item_spacing = Vec2::ZERO;
                 ui.spacing_mut().interact_size.y = 30.0;
                 egui::Frame::new()
@@ -2034,15 +2117,13 @@ impl App {
                     .show(ui, |ui| {
                         ui.add_enabled_ui(
                             !self.busy
+                                && !self.editor.pending()
                                 && self.loading.is_none()
                                 && self.dialog.is_none()
                                 && self.error.is_none(),
                             |ui| {
                                 ui.horizontal(|ui| {
                                     let loaded = self.image.is_some();
-                                    if tool_button(ui, "Abrir", true) {
-                                        self.choose_open();
-                                    }
                                     if tool_button(ui, "Anterior", !self.files.is_empty()) {
                                         self.navigate(-1);
                                     }
@@ -2159,10 +2240,151 @@ impl App {
             });
     }
 
+    fn paint_input(&mut self,ctx:&egui::Context,ui:&egui::Ui,response:&egui::Response,shown:Rect,source_shown:Rect,sx:f32,sy:f32) {
+        if self.busy || self.loading.is_some() || self.dialog.is_some() || self.error.is_some(){return;}
+        if self.editor.tool == paint::Tool::Hand {
+            if response.hovered() || response.dragged_by(egui::PointerButton::Primary) {
+                ctx.set_cursor_icon(if response.dragged_by(egui::PointerButton::Primary) { egui::CursorIcon::Grabbing } else { egui::CursorIcon::Grab });
+            }
+            return;
+        }
+        let Some(im)=self.image.clone() else{return;};
+        let (scale_x,scale_y)=if self.view_rotation.swapped(){(sy,sx)}else{(sx,sy)};
+        let source_point=|p:Pos2| {
+            let p=self.view_rotation.inverse().point(p,shown.center());
+            [((p.x-source_shown.left())/scale_x).clamp(0.0,im.width() as f32-0.001),
+             ((p.y-source_shown.top())/scale_y).clamp(0.0,im.height() as f32-0.001)]
+        };
+        let unfocused=ctx.input(|i|i.viewport().focused==Some(false));
+        let fallback=self.editor.last.map(|p|self.view_rotation.point(source_shown.min+Vec2::new(p[0]*scale_x,p[1]*scale_y),shown.center()));
+        let pointer=ctx.input(|i|i.pointer.interact_pos()).or(fallback);
+        let pressed=ctx.input(|i|i.pointer.button_pressed(egui::PointerButton::Primary));
+        let released=unfocused || ctx.input(|i|i.pointer.button_released(egui::PointerButton::Primary));
+        let hovered=response.hovered() && pointer.is_some_and(|p|shown.contains(p));
+        if self.editor.adjust_brush(ctx,ui,hovered,sx.abs().max(0.001),sy.abs().max(0.001)) { return; }
+        if hovered {
+            if let Some(p)=pointer {if !(self.editor.start.is_some() && self.editor.tool==paint::Tool::Brush && ctx.input(|i|i.modifiers.shift)){self.editor.cursor(ui.painter(),p,sx,sy);}}
+            if matches!(self.editor.tool,paint::Tool::Brush|paint::Tool::Heal|paint::Tool::Clone){ctx.set_cursor_icon(egui::CursorIcon::None);}
+            else{ctx.set_cursor_icon(egui::CursorIcon::Crosshair);}
+        }
+        if self.editor.tool==paint::Tool::Text {
+            if self.editor.text.is_none() && pressed && hovered {
+                let p=source_point(pointer.unwrap());let mut text=text_layer::TextLayer::new(&im,self.editor.color);text.position=[p[0].round()as i32,p[1].round()as i32];self.editor.text=Some(text);self.slide=false;self.animation_paused=true;ctx.request_repaint();
+            }
+            if self.editor.text.as_ref().is_some_and(|text|!text.image.upgrade().is_some_and(|source|Arc::ptr_eq(&source,&im))){self.editor.text=None;}
+            if let Some(text)=&mut self.editor.text {text.canvas(ctx,ui,response,source_shown,shown,Vec2::new(scale_x,scale_y),self.view_rotation,im.dimensions());}
+            return;
+        }
+        if self.editor.tool==paint::Tool::Select {
+            self.selection=None;
+            if pressed && hovered {self.slide=false;self.animation_paused=true;}
+            self.editor.selection_input(ctx,ui,response,&im,shown,source_shown,Vec2::new(scale_x,scale_y),self.view_rotation,&self.checker_texture,Color32::from_rgb(self.settings.screen_color[0],self.settings.screen_color[1],self.settings.screen_color[2]),self.settings.checkerboard);
+            return;
+        }
+        if self.editor.tool==paint::Tool::Clone {
+            if !self.editor.clone_image.as_ref().and_then(std::sync::Weak::upgrade).is_some_and(|source|Arc::ptr_eq(&source,&im)){self.editor.clone_origin=None;self.editor.clone_image=None;}
+            if let Some(origin)=self.editor.clone_origin {
+                let source=if self.editor.start.is_some(){let last=self.editor.last.unwrap_or(origin);let offset=self.editor.clone_offset.unwrap_or([0.0;2]);[last[0]+offset[0],last[1]+offset[1]]}else{origin};
+                let pos=self.view_rotation.point(source_shown.min+Vec2::new(source[0]*scale_x,source[1]*scale_y),shown.center());
+                for (width,color) in [(3.0_f32,Color32::BLACK),(1.0_f32,Color32::WHITE)]{let stroke=Stroke::new(width,color);ui.painter().line_segment([pos-Vec2::new(6.0,0.0),pos+Vec2::new(6.0,0.0)],stroke);ui.painter().line_segment([pos-Vec2::new(0.0,6.0),pos+Vec2::new(0.0,6.0)],stroke);}
+            }
+        }
+        if pressed && hovered {
+            let origin=ctx.input(|i|i.events.iter().find_map(|event|match event {egui::Event::PointerButton{pos,button:egui::PointerButton::Primary,pressed:true,..}=>Some(*pos),_=>None}).or_else(||i.pointer.press_origin())).unwrap_or(pointer.unwrap());
+            let point=source_point(origin);
+            if self.editor.tool==paint::Tool::Eyedropper {self.editor.color=paint::sample(&im,point);return;}
+            if self.editor.tool==paint::Tool::Clone {
+                if ctx.input(|i|i.modifiers.alt){self.editor.clone_origin=Some(point);self.editor.clone_image=Some(Arc::downgrade(&im));return;}
+                if !self.editor.clone_image.as_ref().and_then(std::sync::Weak::upgrade).is_some_and(|source|Arc::ptr_eq(&source,&im)){self.editor.clone_origin=None;}
+                let Some(source)=self.editor.clone_origin else{self.toast("Alt+clique define a origem do carimbo.");return;};
+                self.editor.clone_offset=Some([source[0]-point[0],source[1]-point[1]]);
+            }
+            self.selection=None;self.drag_start=None;self.slide=false;self.animation_paused=true;
+            self.editor.start=Some(point);self.editor.last=Some(point);self.editor.path=vec![point];
+            if matches!(self.editor.tool,paint::Tool::Brush|paint::Tool::Clone) {self.editor.begin_brush(ctx,&im);self.editor.stroke(&im,point,point);}
+        }
+        if let (Some(start),Some(p))=(self.editor.start,pointer) {
+            let shift=ctx.input(|i|i.modifiers.shift);
+            let mut screen_point=p;
+            if shift && matches!(self.editor.tool,paint::Tool::Arrow|paint::Tool::Line) {
+                let a=self.view_rotation.point(source_shown.min+Vec2::new(start[0]*scale_x,start[1]*scale_y),shown.center());
+                let snapped=paint::constrain([a.x,a.y],[p.x,p.y],true);screen_point=Pos2::new(snapped[0],snapped[1]);
+            }
+            if shift && self.editor.tool==paint::Tool::Brush {
+                let anchor=*self.editor.constraint_anchor.get_or_insert_with(||{
+                    let last=self.editor.last.unwrap_or(start);
+                    let a=self.view_rotation.point(source_shown.min+Vec2::new(last[0]*scale_x,last[1]*scale_y),shown.center());[a.x,a.y]
+                });
+                let dx=p.x-anchor[0];let dy=p.y-anchor[1];
+                if self.editor.constraint_axis.is_none() && dx.abs().max(dy.abs())>1.0 {self.editor.constraint_axis=Some(dx.abs()>=dy.abs());}
+                screen_point=if self.editor.constraint_axis.unwrap_or(true){Pos2::new(p.x,anchor[1])}else{Pos2::new(anchor[0],p.y)};
+            }else{self.editor.constraint_anchor=None;self.editor.constraint_axis=None;}
+            let mut point=source_point(screen_point);
+            if ctx.input(|i|i.modifiers.shift) && matches!(self.editor.tool,paint::Tool::Rectangle|paint::Tool::Ellipse) {
+                let dx=point[0]-start[0];let dy=point[1]-start[1];let side=dx.abs().min(dy.abs());
+                point=[start[0]+side*dx.signum(),start[1]+side*dy.signum()];
+            }
+            if shift && self.editor.tool==paint::Tool::Brush {
+                let cursor=self.view_rotation.point(source_shown.min+Vec2::new(point[0]*scale_x,point[1]*scale_y),shown.center());
+                self.editor.cursor(ui.painter(),cursor,sx,sy);
+            }
+            if let Some(last)=self.editor.last {
+                if point!=last {
+                    if matches!(self.editor.tool,paint::Tool::Brush|paint::Tool::Clone) {self.editor.stroke(&im,last,point);}
+                    if self.editor.tool==paint::Tool::Heal {self.editor.path.push(point);}
+                }
+            }
+            self.editor.last=Some(point);
+            if matches!(self.editor.tool,paint::Tool::Rectangle|paint::Tool::Ellipse){
+                let a=source_shown.min+Vec2::new(start[0]*scale_x,start[1]*scale_y);
+                let b=source_shown.min+Vec2::new(point[0]*scale_x,point[1]*scale_y);
+                let bounds=self.view_rotation.rect(Rect::from_two_pos(a,b),shown.center());
+                self.editor.shape_preview(ui.painter(),bounds,(scale_x*scale_y).sqrt());
+            }
+            if self.editor.tool==paint::Tool::Heal {
+                let points:Vec<_>=self.editor.path.iter().map(|p|self.view_rotation.point(source_shown.min+Vec2::new(p[0]*scale_x,p[1]*scale_y),shown.center())).collect();
+                if points.len()>1 {ui.painter().add(egui::Shape::line(points,Stroke::new(self.editor.diameter*(scale_x*scale_y).sqrt(),Color32::from_rgba_unmultiplied(50,170,255,110))));}
+            }
+            if matches!(self.editor.tool,paint::Tool::Arrow|paint::Tool::Line) {
+                let segments=if self.editor.tool==paint::Tool::Line {vec![[start,point]]}else{paint::arrow_segments(start,point,self.editor.diameter)};
+                for [a,b] in segments {
+                    let a=self.view_rotation.point(source_shown.min+Vec2::new(a[0]*scale_x,a[1]*scale_y),shown.center());
+                    let b=self.view_rotation.point(source_shown.min+Vec2::new(b[0]*scale_x,b[1]*scale_y),shown.center());
+                    ui.painter().line_segment([a,b],Stroke::new(self.editor.diameter*(scale_x*scale_y).sqrt(),Color32::from_rgb(self.editor.color[0],self.editor.color[1],self.editor.color[2])));
+                }
+            }
+            ctx.request_repaint();
+            if released {
+                if matches!(self.editor.tool,paint::Tool::Brush|paint::Tool::Clone) {
+                    if let Some(pixels)=self.editor.pixels.take(){self.commit_paint(ctx,pixels);}
+                    if self.editor.tool==paint::Tool::Clone {self.editor.clone_image=self.image.as_ref().map(Arc::downgrade);}
+                }else{
+                    let tool=self.editor.tool;let diameter=self.editor.diameter;let color=self.editor.color;
+                    let filled=self.editor.filled;let tolerance=self.editor.tolerance;let path=std::mem::take(&mut self.editor.path);
+                    self.busy=true;let tx=self.tx.clone();let context=ctx.clone();
+                    std::thread::spawn(move||{
+                        let mut pixels=(*im).clone();
+                        let mut result=Ok(());
+                        match tool {
+                            paint::Tool::Line=>{paint::brush(&mut pixels,start,point,diameter,1.0,color);},
+                            paint::Tool::Arrow=>paint::arrow(&mut pixels,start,point,diameter,color),
+                            paint::Tool::Bucket=>paint::fill(&mut pixels,start,color,tolerance),
+                            paint::Tool::Heal=>{result=paint::heal(&mut pixels,&path,diameter);},
+                            paint::Tool::Rectangle|paint::Tool::Ellipse=>paint::shape(&mut pixels,start,point,diameter,color,tool==paint::Tool::Ellipse,filled),
+                            _=>{}
+                        }
+                        let _=tx.send(Message::Painted(im,result.map(|_|pixels)));context.request_repaint();
+                    });
+                }
+                self.editor.reset_gesture();
+            }
+        }
+    }
     fn canvas(&mut self, ctx: &egui::Context) {
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(Color32::from_rgb(self.settings.screen_color[0],self.settings.screen_color[1],self.settings.screen_color[2]))).show(ctx,|ui|{
             let rect=ui.max_rect();self.canvas=rect;
             let response=ui.allocate_rect(rect,if self.loading.is_none(){Sense::click_and_drag()}else{Sense::hover()});
+            let editing=self.editor.enabled && !self.fullscreen && self.editor.tool!=paint::Tool::Crop;
             let display_image=self.image.clone();
             if let (Some(im),Some(texture))=(&display_image,&self.texture) {
                 let source_dimensions=im.dimensions();
@@ -2176,6 +2398,10 @@ impl App {
                     let (x,y)=model::initial_pan((size.x,size.y),(rect.width(),rect.height()),self.settings.zoom_top_left,self.fit);
                     self.pan=Vec2::new(x,y);self.align_view=false;
                 }
+                if editing && self.editor.tool == paint::Tool::Hand && !self.busy && self.loading.is_none() && self.dialog.is_none() && self.error.is_none()
+                    && response.dragged_by(egui::PointerButton::Primary) {
+                    self.pan += ctx.input(|i|i.pointer.delta());
+                }
                 self.pan.x=self.pan.x.clamp(-limit.x,limit.x);self.pan.y=self.pan.y.clamp(-limit.y,limit.y);
                 let shown=Rect::from_center_size(rect.center()+self.pan,size);let shown=Rect::from_min_size(Pos2::new((shown.min.x*ctx.pixels_per_point()).round()/ctx.pixels_per_point(),(shown.min.y*ctx.pixels_per_point()).round()/ctx.pixels_per_point()),shown.size());self.shown=shown;
                 if self.settings.checkerboard && self.has_alpha {
@@ -2185,10 +2411,10 @@ impl App {
                 let preview_scale=texture.size()[0]as f32/source_dimensions.0 as f32;
                 let settled=self.loading.is_none() && self.last_navigation.elapsed()>=Duration::from_millis(150);
                 if self.last_navigation.elapsed()<Duration::from_millis(150) {ctx.request_repaint_after(Duration::from_millis(150).saturating_sub(self.last_navigation.elapsed()));}
-                if self.loading.is_none() && ((settled && self.fit==Fit::Large && sx*ctx.pixels_per_point()<0.999)||sx*ctx.pixels_per_point()>preview_scale*1.01||sy*ctx.pixels_per_point()>texture.size()[1]as f32/source_dimensions.1 as f32*1.01){
+                if self.editor.texture.is_none() && self.loading.is_none() && ((settled && self.fit==Fit::Large && sx*ctx.pixels_per_point()<0.999)||sx*ctx.pixels_per_point()>preview_scale*1.01||sy*ctx.pixels_per_point()>texture.size()[1]as f32/source_dimensions.1 as f32*1.01){
                     self.tiles.draw(ctx,ui.painter(),im.clone(),source_shown,rect,texture.id(),self.view_rotation);
-                }else{self.view_rotation.paint(ui.painter(),texture.id(),source_shown,Rect::from_min_max(Pos2::ZERO,Pos2::new(1.0,1.0)),shown.center());}
-                if response.clicked_by(egui::PointerButton::Primary) {
+                }else{self.view_rotation.paint(ui.painter(),self.editor.texture.as_ref().unwrap_or(texture).id(),source_shown,Rect::from_min_max(Pos2::ZERO,Pos2::new(1.0,1.0)),shown.center());}
+                if !editing && response.clicked_by(egui::PointerButton::Primary) {
                     if let (Some(crop), Some(pointer)) = (view_selection, response.interact_pointer_pos()) {
                         let selection_rect = Rect::from_min_size(
                             shown.min + Vec2::new(crop.x as f32 * sx, crop.y as f32 * sy),
@@ -2203,7 +2429,7 @@ impl App {
                     }
                 }
                 let mut free_selection_started = false;
-                if !self.fullscreen && !self.busy && self.loading.is_none()
+                if !editing && !self.fullscreen && !self.busy && self.loading.is_none()
                     && matches!(self.fit, Fit::Large | Fit::All)
                     && response.drag_started_by(egui::PointerButton::Primary) {
                     if let Some(origin) = ctx.input(|i| i.pointer.press_origin()) {
@@ -2225,6 +2451,7 @@ impl App {
                         }
                     }
                 }
+                if !editing {
                 if let Some(c)=view_selection {
                     let sel=Rect::from_min_size(shown.min+Vec2::new(c.x as f32*sx,c.y as f32*sy),Vec2::new(c.w as f32*sx,c.h as f32*sy));
                     let dark=Color32::from_black_alpha(145);
@@ -2286,20 +2513,26 @@ impl App {
                 self.selection=view_selection.map(|c|self.view_rotation.inverse().crop(c.bounded(w,h),(w,h)));
                 self.ratio=view_ratio.map(|r|if self.view_rotation.swapped(){1.0/r}else{r});
                 self.align_selection();
+                }
+                if editing {self.paint_input(ctx,ui,&response,shown,source_shown,sx,sy);}
                 if response.hovered() {
                     let (scroll, modifiers)=ctx.input(|i|(i.raw_scroll_delta.y,i.modifiers));
                     if scroll!=0.0 {
                         match model::wheel_action(self.wheel_fit,modifiers.ctrl,modifiers.alt) {
-                            model::WheelAction::Zoom=>self.zoom_by(if scroll>0.0{1.1}else{1.0/1.1}),
+                            model::WheelAction::Zoom=>{
+                                if let Some(pointer)=ctx.input(|i|i.pointer.hover_pos()) {
+                                    self.zoom_at_pointer(if scroll>0.0{1.1}else{1.0/1.1},pointer);
+                                }
+                            },
                             model::WheelAction::Pan=>self.pan.y=(self.pan.y+scroll).clamp(-limit.y,limit.y),
-                            model::WheelAction::Navigate=>self.navigate(if scroll>0.0{-1}else{1}),
+                            model::WheelAction::Navigate=>{if !self.editor.enabled {self.navigate(if scroll>0.0{-1}else{1});}},
                         }
                     }
                 }
-                if response.double_clicked(){self.toggle_fullscreen(ctx);}
-                response.context_menu(|ui|{
+                if !editing && response.double_clicked(){self.toggle_fullscreen(ctx);}
+                if !(editing && (self.editor.suppress_context || ctx.input(|i|i.modifiers.alt))) { response.context_menu(|ui|{
                     self.menu_visuals(ui);
-                    if self.loading.is_some(){ui.disable();}
+                    if self.loading.is_some() || self.editor.pending(){ui.disable();}
                     if self.fullscreen {
                         if item(ui,"Sair da tela cheia",""){self.toggle_fullscreen(ctx);}
                         ui.menu_button(t("Modo de zoom"),|ui|{for (label,fit) in FITS {if item(ui,label,""){self.set_fit(fit);}}});
@@ -2326,7 +2559,7 @@ impl App {
                     ui.separator();
                     self.view_rotation_menu(ui);
                     ui.add_enabled_ui(!self.files.is_empty(),|ui|{if item(ui,"Ir para imagem",""){self.dialog=Some(Dialog::GoTo(String::new(),true));}});
-                });
+                }); }
             }else if !self.busy && self.loading.is_none() && self.error.is_none() && self.dialog.is_none() {
                 egui::Area::new(egui::Id::new("welcome"))
                     .anchor(egui::Align2::CENTER_CENTER,Vec2::ZERO).show(ctx,|ui|{
@@ -2407,6 +2640,7 @@ impl App {
         };
         let mut keep = true;
         let title = match &dialog {
+            Dialog::Effect(..) => "Efeitos",
             Dialog::GoTo(..) => "Ir para imagem",
             Dialog::Panorama { .. } => "Criar panorama",
             Dialog::Unsaved { .. } => "Alterações não salvas",
@@ -2430,7 +2664,7 @@ impl App {
             Dialog::Delete { .. } => Some((dialog_art::Kind::Delete,440.0)),
             Dialog::Rename(..) => Some((dialog_art::Kind::Rename,400.0)),
             Dialog::Settings => Some((dialog_art::Kind::Preferences,760.0)),
-            Dialog::SaveAs { .. } | Dialog::SaveOriginal(_) | Dialog::Overwrite(..) => Some((dialog_art::Kind::Save,440.0)),
+            Dialog::Batch { .. } => Some((dialog_art::Kind::Batch,620.0)),
             _ => None,
         };
         let artwork=art_kind.map(|(kind,width)|(self.dialog_art.texture(ctx,kind),width));
@@ -2543,6 +2777,10 @@ impl App {
                         self.begin_crop(Some(w/h), *lossless);
                         keep = false;
                     }
+                },
+                Dialog::Effect(adjustment) => {
+                    ui.set_width(380.0);
+                    if adjustment.ui(ui) { self.apply_effect(ctx, adjustment.effect); keep=false; }
                 },
                 Dialog::Resize(w,h,locked)=>{
                     let (ow,oh)=self.dimensions();
@@ -2739,12 +2977,14 @@ impl App {
                             ("Espaço / Backspace","Próxima / anterior"),("Page Down / Page Up","Rolar para baixo / cima; novo pressionamento no limite muda a imagem"),("Ctrl + navegação","Pular 5 imagens"),
                             ("Ctrl + 0–9","Avançar N (0 = 10); Shift inverte"),("Ctrl+Home / Ctrl+End","Primeira / última imagem"),
                             ("+ ou = / −","Ampliar / reduzir"),("1–7","Modos de ajuste, conforme menu Exibir"),("Enter / F","Tela cheia / janela"),("Duplo clique esquerdo","Tela cheia / janela"),("T","Mostrar / ocultar título da arte (tela cheia)"),
-                            ("Esc","Cancelar seleção, sair da tela cheia ou fechar"),("F2 / F6","Renomear, incluindo extensão"),("F5 / U","Recarregar imagem e pasta"),
+                            ("Esc","Cancelar seleção, sair da tela cheia ou fechar"),("F2 / F6","Renomear, incluindo extensão"),("F5","Recarregar imagem e pasta"),
                             ("F7 / F8","Mover / copiar arquivo"),("Del / Shift+Del","Lixeira / exclusão permanente, com confirmação"),("F11","Ocultar / mostrar cursor em tela cheia"),
-                            ("I","Informações da imagem"),("P","Preferências"),("C","Alternar zoom entre centro e canto superior esquerdo"),("S","Exportar JPEG"),("W","Exportar WebP"),("Q","Exportar PNG"),("Ctrl+P","Imprimir"),("Ctrl+O","Abrir imagem"),("Ctrl+S","Salvar imagem"),("Ctrl+A","Selecionar / desselecionar tudo"),
+                            ("B / H / J / U","No painel de pintura: pincel / mão / correção localizada / retângulo"),
+                            ("F12","Painel de pintura"),("I","Informações da imagem"),("P","Preferências"),("C","Alternar zoom entre centro e canto superior esquerdo"),("S","Exportar JPEG"),("W","Exportar WebP"),("Q","Exportar PNG"),("Ctrl+P","Imprimir"),("Ctrl+O","Abrir imagem"),("Ctrl+S","Salvar imagem"),("Ctrl+A","Selecionar / desselecionar tudo"),
                             ("Ctrl+Y","Aplicar recorte selecionado"),("Ctrl+Shift+L","Iniciar recorte JPEG sem perdas"),("Ctrl + setas","Redimensionar seleção proporcionalmente"),
                             ("Shift + setas","Mover seleção em passos maiores"),("Alt + setas","Alterar largura / altura da seleção"),
                             ("Ctrl+Z / Ctrl+J","Desfazer / refazer edições"),("Ctrl+C / Ctrl+Insert","Copiar imagem ou seleção"),("Ctrl+V","Colar como nova imagem"),
+                            ("Alt + arrastar botão direito","Ajustar tamanho: pincel, carimbo e correção localizada; dureza: somente pincel"),
                             ("Ctrl+H","Tamanho original"),("Ctrl+G","Escala de cinza"),("Ctrl+R","Redimensionar"),("Ctrl+F","Procurar na pasta"),
                             ("Ctrl+M","Imagem aleatória"),("Ctrl+N","Abrir em outra janela"),("Ctrl+W","Iniciar / parar apresentação"),
                             ("Pause (Windows)","Pausar apresentação; outra tecla continua"),
@@ -2863,7 +3103,7 @@ impl App {
             } else {content(ui);}
             if !matches!(dialog,Dialog::Delete { .. }|Dialog::FolderEnd { .. }|Dialog::Unsaved { .. }){
                 ui.add_space(4.0);ui.separator();
-                let label=if matches!(dialog,Dialog::Rename(..)|Dialog::Resize(..)|Dialog::ManualRatio{..}|Dialog::SaveOriginal(_)|Dialog::SaveAs{..}|Dialog::Overwrite(..)|Dialog::Batch{..}){"Cancelar"}else{"Fechar"};
+                let label=if matches!(dialog,Dialog::Effect(..)|Dialog::Rename(..)|Dialog::Resize(..)|Dialog::ManualRatio{..}|Dialog::SaveOriginal(_)|Dialog::SaveAs{..}|Dialog::Overwrite(..)|Dialog::Batch{..}){"Cancelar"}else{"Fechar"};
                 if ui.button(t(label)).clicked(){keep=false;}
             }
             ui.add_space(4.0);
@@ -3026,7 +3266,13 @@ impl eframe::App for App {
         }
         self.pixel_ratio = ctx.pixels_per_point();
         self.messages(ctx);
-        self.shortcuts(ctx);
+        if self.editor.text.is_some() {
+            let typing=ctx.wants_keyboard_input();
+            ctx.input_mut(|i|{if i.consume_key(egui::Modifiers::NONE,Key::Escape){self.editor.text.as_mut().unwrap().action=Some(false);}else if i.consume_key(egui::Modifiers::CTRL,Key::Enter)||(!typing&&i.consume_key(egui::Modifiers::NONE,Key::Enter)){self.editor.text.as_mut().unwrap().action=Some(true);}});
+        }else if self.editor.floating.is_some() {
+            ctx.input_mut(|i|{if i.consume_key(egui::Modifiers::NONE,Key::Escape){self.editor.selection_action=Some(false);}else if i.consume_key(egui::Modifiers::NONE,Key::Enter){self.editor.selection_action=Some(true);}});
+        }else if self.editor.tool==paint::Tool::Select && self.editor.start.is_some() && ctx.input_mut(|i|i.consume_key(egui::Modifiers::NONE,Key::Escape)){self.editor.reset_gesture();}
+        else if self.editor.start.is_none(){self.shortcuts(ctx);}
         if !self.fullscreen {
             self.fullscreen_chrome_last=None;
             self.fullscreen_chrome_opacity=0.0;
@@ -3067,10 +3313,36 @@ impl eframe::App for App {
                 ctx.request_repaint_after(self.animation_deadline.saturating_duration_since(now));
             } else {self.animation_deadline=Instant::now()+self.animation.as_ref().unwrap().frames[self.animation_index].1;}
         }
+        if !self.fullscreen {self.editor.panel(ctx,self.image.is_some() && !self.busy && self.loading.is_none());}
+        if std::mem::take(&mut self.editor.text_requested) {
+            if let Some(image)=&self.image {self.editor.text=Some(text_layer::TextLayer::new(image,self.editor.color));self.selection=None;self.slide=false;self.animation_paused=true;ctx.request_repaint();}
+        }
+        if let Some(apply)=self.editor.text.as_mut().and_then(|text|text.action.take()) {
+            if let Some(text)=self.editor.text.take() {
+                if apply {
+                    if let (Some(im),Some(pixels))=(self.image.clone().filter(|im|text.image.upgrade().is_some_and(|source|Arc::ptr_eq(&source,im))),text.pixels) {
+                        self.busy=true;let tx=self.tx.clone();let context=ctx.clone();
+                        std::thread::spawn(move||{let mut result=(*im).clone();image::imageops::overlay(&mut result,&*pixels,i64::from(text.position[0]),i64::from(text.position[1]));let _=tx.send(Message::Painted(im,Ok(result)));context.request_repaint();});
+                    }
+                }
+            }
+        }
+        if std::mem::take(&mut self.editor.crop_requested){self.select_entire_image();}
+        if let Some(apply)=self.editor.selection_action.take() {
+            if let Some(floating)=self.editor.floating.take() {
+                if apply && floating.offset!=[0,0] {
+                    if let Some(im)=self.image.clone().filter(|im|floating.image.upgrade().is_some_and(|source|Arc::ptr_eq(&source,im))) {
+                        self.busy=true;let tx=self.tx.clone();let context=ctx.clone();
+                        std::thread::spawn(move||{let pixels=paint::transfer(&im,floating.source,floating.offset,floating.copy);let _=tx.send(Message::Painted(im,Ok(pixels)));context.request_repaint();});
+                    }
+                }
+            }
+            self.editor.reset_gesture();
+        }
         self.canvas(ctx);
         self.dialogs(ctx);
         if let Some(p) = ctx.input(|i| i.raw.dropped_files.iter().find_map(|f| f.path.clone())) {
-            if !self.busy {
+            if !self.busy && !self.editor.pending() {
                 self.open(p);
             }
         }

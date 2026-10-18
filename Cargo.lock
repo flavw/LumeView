@@ -1657,8 +1657,9 @@ checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 
 [[package]]
 name = "lumeview"
-version = "0.36.3"
+version = "0.37.0"
 dependencies = [
+ "ab_glyph",
  "arboard",
  "chrono",
  "eframe",
@@ -1671,6 +1672,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "trash",
+ "windows 0.58.0",
  "windows-sys 0.59.0",
  "zip",
 ]
