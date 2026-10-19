@@ -9,16 +9,16 @@ A minimalist image viewer written in Rust, inspired by IrfanView. LumeView focus
 LumeView is available for **64-bit Windows**. Choose one of these installation options:
 
 - **Microsoft Store:** [Install LumeView from the Microsoft Store](https://apps.microsoft.com/detail/9n0wr4v1nxkf).
-- **Direct download (EXE):** Open the [latest GitHub release](https://github.com/flavw/LumeView/releases/latest), download **LumeView-Setup.exe** under **Assets**, and run it to install LumeView.
+- **Manual ZIP:** Open the [latest GitHub release](https://github.com/flavw/LumeView/releases/latest), download **LumeView-0.37.2-Windows-x64.zip**, extract it, and run **LumeView/lumeview.exe**. Keep the `tools` folder beside the executable. No automatic installer or registry changes are performed; file associations are configured manually.
 
-The EXE installer downloaded from GitHub is unsigned, so Windows SmartScreen may show an unrecognized-app warning.
+See the [manual installation instructions](docs/manual-installation.md).
 
 ## Features
 
 - Fast native decoding of JPEG, PNG and WebP, asynchronous loading and a bounded image cache.
 - Minimal text menus; toolbar enabled by default, optional status bar, and a title bar that can be shown or hidden from View. The title-bar preference is saved.
 - Original-size viewing, seven zoom modes, fullscreen and slideshow.
-- Rotate the view 90° clockwise or counterclockwise from View, or reset its orientation. Rotation stays active while browsing during the session and does not change source pixels, saved images or clipboard copies.
+- Press **R** to rotate the view 90° clockwise, or use View to rotate clockwise/counterclockwise or reset its orientation. Rotation stays active while browsing during the session and does not change source pixels, saved images or clipboard copies.
 - Animated GIF playback with frame timing and loop counts; pause via View.
 - SVG/SVGZ viewing through the bundled ImageMagick renderer (rasterized for display).
 - Fullscreen title visibility is remembered, with an adjustable translucent black background (75% transparency by default).

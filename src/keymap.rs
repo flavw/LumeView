@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 
 // Navigation, text clipboard, Escape and Enter remain standard system keys.
 pub const ACTIONS: &[(&str,&str)] = &[
+    ("Girar exibição 90° à direita", "R"),
     ("Abrir", "Ctrl+O"), ("Salvar imagem","Ctrl+S"), ("Exportar JPEG","S"),
     ("Exportar WebP","W"), ("Exportar PNG","Q"), ("Imprimir","Ctrl+P"),
     ("Informações da imagem","I"), ("Preferências","P"), ("Renomear","F2"),

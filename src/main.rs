@@ -819,7 +819,7 @@ impl App {
     }
     fn view_rotation_menu(&mut self, ui: &mut egui::Ui) {
         ui.menu_button(t("Girar exibição"),|ui| {
-            if item(ui,"Girar exibição 90° à direita","") {self.rotate_view(Some(true));}
+            if item(ui,"Girar exibição 90° à direita","R") {self.rotate_view(Some(true));}
             if item(ui,"Girar exibição 90° à esquerda","") {self.rotate_view(Some(false));}
             ui.add_enabled_ui(!self.view_rotation.is_default(),|ui| {
                 if item(ui,"Restaurar orientação da exibição","") {self.rotate_view(None);}
@@ -1681,6 +1681,7 @@ impl App {
                     Key::F11 => self.hide_cursor = !self.hide_cursor,
                     Key::P => self.dialog = Some(Dialog::Settings),
                     Key::C if !m.alt && !m.shift && !repeat => self.toggle_zoom_alignment(),
+                    Key::R if !m.alt && !m.shift && !repeat && self.image.is_some() => self.rotate_view(Some(true)),
                     Key::I => self.show_information(),
                     Key::S => self.export_dialog(Format::Jpeg),
                     Key::W => self.export_dialog(Format::Webp),
@@ -2980,7 +2981,7 @@ impl App {
                             ("Esc","Cancelar seleção, sair da tela cheia ou fechar"),("F2 / F6","Renomear, incluindo extensão"),("F5","Recarregar imagem e pasta"),
                             ("F7 / F8","Mover / copiar arquivo"),("Del / Shift+Del","Lixeira / exclusão permanente, com confirmação"),("F11","Ocultar / mostrar cursor em tela cheia"),
                             ("B / H / J / U","No painel de pintura: pincel / mão / correção localizada / retângulo"),
-                            ("F12","Painel de pintura"),("I","Informações da imagem"),("P","Preferências"),("C","Alternar zoom entre centro e canto superior esquerdo"),("S","Exportar JPEG"),("W","Exportar WebP"),("Q","Exportar PNG"),("Ctrl+P","Imprimir"),("Ctrl+O","Abrir imagem"),("Ctrl+S","Salvar imagem"),("Ctrl+A","Selecionar / desselecionar tudo"),
+                            ("R","Girar exibição 90° à direita"),("F12","Painel de pintura"),("I","Informações da imagem"),("P","Preferências"),("C","Alternar zoom entre centro e canto superior esquerdo"),("S","Exportar JPEG"),("W","Exportar WebP"),("Q","Exportar PNG"),("Ctrl+P","Imprimir"),("Ctrl+O","Abrir imagem"),("Ctrl+S","Salvar imagem"),("Ctrl+A","Selecionar / desselecionar tudo"),
                             ("Ctrl+Y","Aplicar recorte selecionado"),("Ctrl+Shift+L","Iniciar recorte JPEG sem perdas"),("Ctrl + setas","Redimensionar seleção proporcionalmente"),
                             ("Shift + setas","Mover seleção em passos maiores"),("Alt + setas","Alterar largura / altura da seleção"),
                             ("Ctrl+Z / Ctrl+J","Desfazer / refazer edições"),("Ctrl+C / Ctrl+Insert","Copiar imagem ou seleção"),("Ctrl+V","Colar como nova imagem"),

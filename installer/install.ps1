@@ -1,12 +1,18 @@
 ﻿param([Parameter(Mandatory=$true)][string]$Payload,[string]$Target=(Join-Path $env:LOCALAPPDATA 'Programs\LumeView'),[switch]$StageOnly)
 $ErrorActionPreference='Stop'
+[Console]::OutputEncoding=New-Object System.Text.UTF8Encoding($false)
 # Preserve existing registry keys and other applications' associations.
 function Ensure-RegistryKey {
  param([string[]]$Path)
  foreach($registryPath in $Path){
-  if(!(Test-Path -LiteralPath $registryPath)){New-Item -Path $registryPath | Out-Null}
+  if(!$registryPath.StartsWith('HKCU:\',[StringComparison]::OrdinalIgnoreCase)){throw "Unexpected registry root: $registryPath"}
+  # Create missing parents without replacing existing keys or their default values.
+  $key=[Microsoft.Win32.Registry]::CurrentUser.CreateSubKey($registryPath.Substring(6))
+  if($null -eq $key){throw "Cannot create registry key: $registryPath"}
+  $key.Dispose()
  }
 }
+
 try {
 $Target=[IO.Path]::GetFullPath($Target)
 $exe=Join-Path $Target 'lumeview.exe'
@@ -74,7 +80,7 @@ $link=$shell.CreateShortcut($start);$link.TargetPath=$exe;$link.WorkingDirectory
 $uninstall='HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\LumeView'
 Ensure-RegistryKey -Path $uninstall | Out-Null
 Set-ItemProperty -LiteralPath $uninstall -Name DisplayName -Value 'LumeView'
-Set-ItemProperty -LiteralPath $uninstall -Name DisplayVersion -Value '0.37.0'
+Set-ItemProperty -LiteralPath $uninstall -Name DisplayVersion -Value '0.37.2'
 Set-ItemProperty -LiteralPath $uninstall -Name DisplayIcon -Value $exe
 Set-ItemProperty -LiteralPath $uninstall -Name InstallLocation -Value $Target
 Set-ItemProperty -LiteralPath $uninstall -Name UninstallString -Value ('powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "'+(Join-Path $Target 'installer\uninstall.ps1')+'"')
@@ -84,8 +90,17 @@ Write-Output 'LumeView instalado. Para defini-lo como padrão, abra Configuraç�
 
 exit 0
 } catch {
- [Console]::Error.WriteLine($_.Exception.Message)
- $exception=$_.Exception
+ $failure=$_
+ try {
+  $logDirectory=Join-Path $env:LOCALAPPDATA 'LumeView'
+  New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
+  $log=Join-Path $logDirectory 'setup-error.log'
+  @((Get-Date -Format o),$failure.Exception.ToString(),$failure.InvocationInfo.PositionMessage,$failure.ScriptStackTrace) | Set-Content -LiteralPath $log -Encoding UTF8
+  [Console]::Error.WriteLine("Installation details: $log")
+ } catch {}
+ [Console]::Error.WriteLine($failure.Exception.Message)
+ [Console]::Error.WriteLine($failure.InvocationInfo.PositionMessage)
+ $exception=$failure.Exception
  while($exception){
   if(($exception.HResult -band 0xffff) -in @(112,39)){exit 112}
   $exception=$exception.InnerException
