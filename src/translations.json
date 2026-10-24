@@ -1,4 +1,24 @@
 {
+  "Copy hexadecimal color code": ["Copiar código de color hexadecimal", "Copier le code couleur hexadécimal"],
+  "Remove": ["Eliminar", "Supprimer"],
+  "Paint: cycle spot healing / remove": ["Pintura: alternar corrección puntual / eliminar", "Peinture : alterner correcteur localisé / supprimer"],
+  "Use the Remove tool on a smaller area.": ["Usa la herramienta Eliminar en un área más pequeña.", "Utilisez l’outil Supprimer sur une zone plus petite."],
+  "Mark a smaller area and leave background pixels around it.": ["Marca un área más pequeña y deja píxeles del fondo alrededor.", "Marquez une zone plus petite et laissez des pixels du fond autour."],
+  "Crop": ["Recortar", "Recadrer"],
+  "Aspect ratio": ["Proporción", "Rapport largeur/hauteur"],
+  "Soft shadow": ["Sombra suave", "Ombre douce"],
+  "Paint: brush / hand / spot healing / clone stamp / eyedropper": [
+    "Pintura: pincel / mano / corrección puntual / tampón de clonar / cuentagotas",
+    "Peinture : pinceau / main / correcteur localisé / tampon de duplication / pipette"
+  ],
+  "Paint: select and move / crop / paint bucket / text": [
+    "Pintura: seleccionar y mover / recortar / bote de pintura / texto",
+    "Peinture : sélectionner et déplacer / recadrer / pot de peinture / texte"
+  ],
+  "Paint: last shape / cycle shapes": [
+    "Pintura: última forma / alternar formas",
+    "Peinture : dernière forme / parcourir les formes"
+  ],
   "Rotate view": [
     "Girar la vista",
     "Tourner la vue"
@@ -1434,5 +1454,21 @@
   "Adjust size: brush, clone stamp and spot healing; hardness: brush only": [
     "Ajustar tamaño: pincel, tampón y corrector puntual; dureza: solo pincel",
     "Régler la taille : pinceau, tampon et correcteur localisé ; dureté : pinceau uniquement"
+  ],
+  "Tool options": [
+    "Opciones de herramienta",
+    "Options de l’outil"
+  ],
+  "Thickness": [
+    "Grosor",
+    "Épaisseur"
+  ],
+  "Outline": [
+    "Contorno",
+    "Contour"
+  ],
+  "Fill": [
+    "Relleno",
+    "Remplissage"
   ]
 }

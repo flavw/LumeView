@@ -134,10 +134,27 @@ pub fn raster(
     }
     Ok(Some(pixels))
 }
+fn soft_shadow(text: &RgbaImage, size: f32) -> (RgbaImage, i32) {
+    let sigma = (size * 0.035).clamp(1.0, 8.0);
+    let offset = (size * 0.04).clamp(1.0, 10.0).round() as u32;
+    let padding = (sigma * 3.0).ceil() as u32 + offset + 1;
+    let mut mask = GrayImage::new(text.width() + padding * 2, text.height() + padding * 2);
+    for (x,y,p) in text.enumerate_pixels() {
+        mask.put_pixel(x + padding + offset,y + padding + offset,Luma([p[3]]));
+    }
+    let mask = image::imageops::blur(&mask,sigma);
+    let mut pixels = RgbaImage::from_fn(mask.width(),mask.height(),|x,y| {
+        image::Rgba([0,0,0,(f32::from(mask.get_pixel(x,y)[0])*0.45).round() as u8])
+    });
+    image::imageops::overlay(&mut pixels,text,i64::from(padding),i64::from(padding));
+    (pixels,padding as i32)
+}
 pub struct TextLayer {
     pub text: String,
     pub size: f32,
     pub color: [u8; 3],
+    pub shadow: bool,
+    pub inset: i32,
     pub position: [i32; 2],
     pub image: Weak<RgbaImage>,
     pub pixels: Option<Arc<RgbaImage>>,
@@ -159,6 +176,8 @@ impl TextLayer {
             text: String::new(),
             size: 48.0,
             color,
+            shadow: false,
+            inset: 0,
             position: [(im.width() / 12) as i32, (im.height() / 12) as i32],
             image: Arc::downgrade(im),
             pixels: None,
@@ -192,14 +211,7 @@ impl TextLayer {
         self.dirty = true;
     }
     pub fn panel(&mut self, ui: &mut egui::Ui) {
-        ui.separator();
-        let response = ui.add(
-            egui::TextEdit::multiline(&mut self.text)
-                .desired_rows(3)
-                .desired_width(150.0)
-                .char_limit(2000)
-                .hint_text(t("Digite o texto")),
-        );
+        let response = text_input(ui,&mut self.text);
         if self.focus {
             response.request_focus();
             self.focus = false;
@@ -248,8 +260,9 @@ impl TextLayer {
                 .changed();
         });
         let previous = self.color;
-        preferences::color_button(ui, &t("Cor"), &mut self.color);
+        preferences::color_swatch(ui, &t("Cor"), &mut self.color);
         self.dirty |= previous != self.color;
+        self.dirty |= ui.checkbox(&mut self.shadow,t("Sombra suave")).changed();
         if let Some(error) = &self.error {
             ui.colored_label(Color32::LIGHT_RED, error);
         }
@@ -275,9 +288,15 @@ impl TextLayer {
         self.dirty = false;
         self.pixels = None;
         self.texture = None;
+        self.inset = 0;
         if let Some(font) = &self.font {
             match raster(font, &self.text, self.size, self.color) {
                 Ok(Some(pixels)) => {
+                    let pixels = if self.shadow {
+                        let (pixels,inset) = soft_shadow(&pixels,self.size);
+                        self.inset = inset;
+                        pixels
+                    } else { pixels };
                     let pixels = Arc::new(pixels);
                     self.texture = Some(ctx.load_texture(
                         "floating-text",
@@ -321,8 +340,8 @@ impl TextLayer {
         let rect = Rect::from_min_size(
             source_rect.min
                 + Vec2::new(
-                    self.position[0] as f32 * scale.x,
-                    self.position[1] as f32 * scale.y,
+                    (self.position[0] - self.inset) as f32 * scale.x,
+                    (self.position[1] - self.inset) as f32 * scale.y,
                 ),
             size,
         );
@@ -386,8 +405,8 @@ impl TextLayer {
         let rect = Rect::from_min_size(
             source_rect.min
                 + Vec2::new(
-                    self.position[0] as f32 * scale.x,
-                    self.position[1] as f32 * scale.y,
+                    (self.position[0] - self.inset) as f32 * scale.x,
+                    (self.position[1] - self.inset) as f32 * scale.y,
                 ),
             size,
         );
@@ -409,9 +428,48 @@ impl TextLayer {
         );
     }
 }
+fn text_input(ui: &mut egui::Ui, text: &mut String) -> egui::Response {
+    // Match the visible editor's height rather than centering a taller, empty container.
+    let height = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
+    ui.allocate_ui_with_layout(egui::vec2(220.0,height),egui::Layout::top_down(egui::Align::Min),|ui| {
+        egui::ScrollArea::vertical().id_salt("paint_text_input")
+            .min_scrolled_height(height).max_height(height).show(ui,|ui| {
+                ui.add(egui::TextEdit::multiline(text)
+                    .desired_rows(1).desired_width(210.0).char_limit(2000)
+                    .hint_text(t("Digite o texto")))
+            }).inner
+    }).inner
+}
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn typing_field_and_font_selector_have_the_same_vertical_center() {
+        let ctx = egui::Context::default();
+        for content in ["","Lume"] {
+            let mut text = content.to_owned();
+            let mut centers = (0.0_f32,0.0_f32);
+            let _ = ctx.run(egui::RawInput::default(),|ctx| {
+                egui::CentralPanel::default().show(ctx,|ui| {
+                    ui.allocate_ui_with_layout(Vec2::new(900.0,32.0),egui::Layout::left_to_right(egui::Align::Center),|ui| {
+                        centers.0 = text_input(ui,&mut text).rect.center().y;
+                        centers.1 = egui::ComboBox::from_id_salt("test_font").selected_text("Arial")
+                            .show_ui(ui,|ui| {ui.label("Arial");}).response.rect.center().y;
+                    });
+                });
+            });
+            assert!((centers.0-centers.1).abs()<=0.5,"field and font selector centers: {centers:?}");
+        }
+    }
+    #[test]
+    fn soft_shadow_has_a_blurred_black_halo_and_preserves_opaque_text() {
+        let text = RgbaImage::from_fn(12,12,|x,y|image::Rgba(if (3..9).contains(&x) && (3..9).contains(&y) {[255;4]} else {[0;4]}));
+        let (shadow,padding) = soft_shadow(&text,48.0);
+        assert_eq!(shadow.dimensions(),(12+padding as u32*2,12+padding as u32*2));
+        assert_eq!(*shadow.get_pixel(padding as u32+5,padding as u32+5),image::Rgba([255;4]));
+        assert!(shadow.pixels().any(|p|p[0]==0 && p[1]==0 && p[2]==0 && p[3]>0 && p[3]<115));
+        assert_eq!(*shadow.get_pixel(0,0),image::Rgba([0;4]));
+    }
     #[test]
     fn text_is_antialiased_multiline_and_has_clean_color() {
         let Some((_, path)) = fonts().into_iter().next() else {

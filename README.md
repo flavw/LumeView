@@ -10,7 +10,7 @@ LumeView is available for **64-bit Windows**. Choose one of these installation o
 
 - **Microsoft Store:** [Install LumeView from the Microsoft Store](https://apps.microsoft.com/detail/9n0wr4v1nxkf).
 - **EXE installer:** Open the [latest GitHub release](https://github.com/flavw/LumeView/releases/latest), download **LumeView-Setup.exe**, and run it. The installer creates a Start menu shortcut and registers LumeView in **Open with**; your default apps are not changed.
-- **Manual ZIP:** Open the [latest GitHub release](https://github.com/flavw/LumeView/releases/latest), download **LumeView-0.37.2-Windows-x64.zip**, extract it, and run **LumeView/lumeview.exe**. Keep the `tools` folder beside the executable. No automatic installer or registry changes are performed; file associations are configured manually.
+- **Manual ZIP:** Open the [latest GitHub release](https://github.com/flavw/LumeView/releases/latest), download **LumeView-0.38.0-Windows-x64.zip**, extract it, and run **LumeView/lumeview.exe**. Keep the `tools` folder beside the executable. No automatic installer or registry changes are performed; file associations are configured manually.
 
 See the [manual installation instructions](docs/manual-installation.md).
 
@@ -28,7 +28,8 @@ See the [manual installation instructions](docs/manual-installation.md).
 - Batch resizing by pixels or percentage, with optional aspect-ratio preservation and original-format output. Batch naming supports a base name, digit count and starting number.
 - Customizable primary shortcuts under Edit → Preferences → Shortcuts, with conflict validation and default restoration.
 - Optional top-left alignment for images larger than the viewport, available under Preferences → Viewing. Press C to switch between centered and top-left zoom; the preference is saved.
-- Optional Paint dialog (F12): brush, clone stamp, spot healing, fill, shapes, arrows, text, selections and a hand tool. Supports undo/redo; editing resources load only when used.
+- Optional compact Paint dialog (F12): brush with size and hardness controls, clone stamp, spot healing, Remove, fill, shapes, arrows, floating text with optional soft shadow, selections and a hand tool. The eyedropper shows a clickable HEX color code for copying. Supports undo/redo; editing resources load only when used.
+- Remove fills marked areas from surrounding pixels without generative AI. Intended for smooth backgrounds and gradients; cover the entire object, including its edges. Retouching uses a rounded, translucent dark preview.
 - Image effects: black and white, sepia, negative, brightness/contrast, saturation, warm/cool tones and posterization.
 - Ctrl+wheel or Alt+wheel zooms around the mouse pointer.
 - Wallpaper crops: Free, 1:1, 16:9, 9:16, 10:16, 8:16, original and custom aspect ratios; rule-of-thirds grid and resizable handles.
@@ -54,13 +55,39 @@ See the [manual installation instructions](docs/manual-installation.md).
 | P | Preferences |
 | C | Toggle centered / top-left zoom alignment |
 | F2 | Rename |
+| R | Rotate the view 90° clockwise |
+| F5 | Reload image and folder |
 | Ctrl+S | Save dialog |
 | Ctrl+P | Windows Print Pictures |
-| S / W / Q | Export JPEG / WebP / PNG |
+| E / W / Q | Export JPEG / WebP / PNG |
 | Page Down / Page Up | Scroll down / up; press again at the boundary to change image |
 | Ctrl+Y | Apply the crop |
 | Delete / Shift+Delete | Recycle / permanently delete, with confirmation |
 | F1 | All shortcuts |
+| F12 | Show / hide Paint dialog |
+
+### Paint dialog controls
+
+Tool shortcuts take priority over viewer shortcuts while Paint dialog is active. Typing in text fields keeps normal text input.
+
+| Key | Tool or action |
+| --- | --- |
+| B | Brush |
+| H | Hand |
+| M / V | Select and move |
+| C | Crop, with preset or custom aspect ratio and a swap button |
+| I | Eyedropper; click its HEX code to copy it |
+| J | Last-used spot healing / Remove tool |
+| Shift+J | Cycle spot healing / Remove |
+| S | Clone stamp; Alt+click sets the source |
+| G | Paint bucket |
+| T | Floating text |
+| U / Shift+U | Last-used shape / cycle rectangle, ellipse, line and arrow |
+| Alt+right-drag | Adjust brush, clone stamp, spot healing or Remove size; vertical dragging changes hardness for Brush only |
+| Ctrl+Z / Ctrl+J | Undo / redo |
+| Ctrl+Enter / Esc | Apply / cancel floating text |
+
+Hold Shift for horizontal/vertical brush strokes, 45° steps with line/arrow tools, and square/circular shapes. Mouse-wheel image navigation is disabled while Paint dialog is active.
 
 Without modifiers, the mouse wheel navigates images or scrolls vertically in the width-fit reading mode. The default zoom fits large images to the window without enlarging small ones. Selected zoom modes persist between images; width-fit pages start at the top. Left-click and drag creates a freeform selection in zoom modes 2 and 3 outside fullscreen. Automatic restart at the end of a folder is enabled by default; disabling it shows a restart dialog.
 

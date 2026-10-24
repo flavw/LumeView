@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 // Navigation, text clipboard, Escape and Enter remain standard system keys.
 pub const ACTIONS: &[(&str,&str)] = &[
     ("Girar exibição 90° à direita", "R"),
-    ("Abrir", "Ctrl+O"), ("Salvar imagem","Ctrl+S"), ("Exportar JPEG","S"),
+    ("Abrir", "Ctrl+O"), ("Salvar imagem","Ctrl+S"), ("Exportar JPEG","E"),
     ("Exportar WebP","W"), ("Exportar PNG","Q"), ("Imprimir","Ctrl+P"),
     ("Informações da imagem","I"), ("Preferências","P"), ("Renomear","F2"),
     ("Recarregar imagem e pasta","F5"), ("Mover arquivo","F7"), ("Copiar arquivo","F8"),
@@ -23,6 +23,11 @@ pub fn parse(value: &str) -> Option<(Key,Modifiers)> {
         }
     }
     Some((key?,m))
+}
+pub fn migrate_jpeg_shortcut(map: &mut BTreeMap<String,String>) {
+    if let Some(binding)=map.remove("S") {
+        if binding!="S" {map.entry("E".into()).or_insert(binding);}
+    }
 }
 fn same(a: (Key,Modifiers),b: (Key,Modifiers)) -> bool {
     a.0==b.0 && a.1.ctrl==b.1.ctrl && a.1.alt==b.1.alt && a.1.shift==b.1.shift
@@ -64,6 +69,19 @@ pub fn current_label(default: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn jpeg_uses_e_preserves_save_and_migrates_custom_bindings() {
+        let mut map=BTreeMap::new();
+        assert!(ACTIONS.contains(&("Exportar JPEG","E")));
+        assert!(same(remap(Key::E,Modifiers::NONE,&map).unwrap(),parse("E").unwrap()));
+        assert!(same(remap(Key::S,Modifiers::CTRL,&map).unwrap(),parse("Ctrl+S").unwrap()));
+        map.insert("S".into(),"S".into());migrate_jpeg_shortcut(&mut map);
+        assert!(map.is_empty());
+        map.insert("S".into(),"Alt+K".into());migrate_jpeg_shortcut(&mut map);
+        assert_eq!(map.get("E").map(String::as_str),Some("Alt+K"));
+        assert!(validation(&map));
+        assert!(same(remap(Key::K,Modifiers::ALT,&map).unwrap(),parse("E").unwrap()));
+    }
     #[test]
     fn duplicates_reserved_keys_and_remap() {
         let mut map=BTreeMap::new(); assert!(validation(&map));

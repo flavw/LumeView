@@ -13,12 +13,20 @@ pub struct Editor {
     pub text: Option<crate::text_layer::TextLayer>,
     pub text_requested: bool,
     pub crop_requested: bool,
+    pub crop_ratio_requested: Option<Option<f32>>,
+    crop_ratio: Option<f32>,
+    crop_dimensions: (u32,u32),
+    crop_width: String,
+    crop_height: String,
     pub floating: Option<Floating>,
     pub selection_action: Option<bool>,
     pub tool: Tool,
+    shape_tool: Option<Tool>,
+    retouch_tool: Option<Tool>,
     pub diameter: f32,
     pub hardness: f32,
     pub color: [u8; 3],
+    pub fill_color: [u8; 3],
     pub tolerance: u8,
     pub filled: bool,
     pub clone_origin: Option<[f32; 2]>,
@@ -31,6 +39,7 @@ pub struct Editor {
     pub start: Option<[f32; 2]>,
     pub last: Option<[f32; 2]>,
     pub path: Vec<[f32; 2]>,
+    pub heal_preview: crate::heal_preview::Preview,
 }
 impl Editor {
     pub fn new() -> Self {
@@ -38,6 +47,7 @@ impl Editor {
             diameter: 32.0,
             hardness: 0.8,
             color: [255, 0, 0],
+            fill_color: [255; 3],
             ..Self::default()
         }
     }
@@ -47,7 +57,7 @@ impl Editor {
             i.pointer.button_down(egui::PointerButton::Secondary),
             i.pointer.interact_pos(), i.viewport().focused != Some(false)));
         self.suppress_context = false;
-        if !matches!(self.tool, Tool::Brush | Tool::Clone | Tool::Heal) || !focused {
+        if !matches!(self.tool, Tool::Brush | Tool::Clone | Tool::Heal | Tool::Remove) || !focused {
             self.sizing = None; return false;
         }
         if alt && pressed && hovered && self.start.is_none() {
@@ -75,19 +85,69 @@ impl Editor {
     pub fn pending(&self) -> bool {
         self.floating.is_some() || self.text.is_some()
     }
-    pub fn panel(&mut self, ctx: &egui::Context, available: bool) {
-        if !self.enabled {
-            return;
+    pub fn select_tool(&mut self, tool: Tool) {
+        self.tool = tool;
+        if is_shape(tool) { self.shape_tool = Some(tool); }
+        if matches!(tool,Tool::Heal|Tool::Remove) { self.retouch_tool = Some(tool); }
+        if tool == Tool::Text { self.text_requested = true; }
+        if tool == Tool::Crop { self.crop_requested = true; }
+    }
+    pub fn shortcut_tool(&self, key: egui::Key, modifiers: egui::Modifiers) -> Option<Tool> {
+        if modifiers.ctrl || modifiers.command || modifiers.alt { return None; }
+        if key == egui::Key::J {
+            let current=self.retouch_tool.unwrap_or(Tool::Heal);
+            return Some(if modifiers.shift {if current==Tool::Heal {Tool::Remove}else{Tool::Heal}}else{current});
         }
+        if key == egui::Key::U {
+            let current = if is_shape(self.tool) { self.tool } else { self.shape_tool.unwrap_or(Tool::Rectangle) };
+            return Some(if modifiers.shift {
+                match current {
+                    Tool::Rectangle => Tool::Ellipse, Tool::Ellipse => Tool::Line,
+                    Tool::Line => Tool::Arrow, _ => Tool::Rectangle,
+                }
+            } else { current });
+        }
+        if modifiers.shift { return None; }
+        match key {
+            egui::Key::B => Some(Tool::Brush), egui::Key::H => Some(Tool::Hand),
+            egui::Key::S => Some(Tool::Clone),
+            egui::Key::I => Some(Tool::Eyedropper), egui::Key::G => Some(Tool::Bucket),
+            egui::Key::M | egui::Key::V => Some(Tool::Select),
+            egui::Key::C => Some(Tool::Crop), egui::Key::T => Some(Tool::Text),
+            _ => None,
+        }
+    }
+    pub fn panel(&mut self, ctx: &egui::Context, available: bool, chrome_height: f32) {
+        if !self.enabled { return; }
+        // Reserve the same height for every tool, including tools without options.
+        egui::TopBottomPanel::top("paint_controls")
+            .resizable(false).show_separator_line(false)
+            .exact_height(chrome_height + 48.0)
+            .frame(egui::Frame::side_top_panel(&ctx.style()).inner_margin(egui::Margin { left:36,right:8,top:4,bottom:4 }))
+            .show(ctx, |ui| {
+                ui.add_space(chrome_height);
+                egui::ScrollArea::horizontal().id_salt("paint_controls_scroll")
+                    .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+                    .show(ui, |ui| {
+                        ui.spacing_mut().slider_width = 96.0;
+                        ui.allocate_ui_with_layout(Vec2::new(ui.available_width(),32.0),
+                            egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                                self.tool_options(ui, available);
+                            });
+                    });
+            });
         egui::SidePanel::left("editing_tools")
             .show_separator_line(false)
             .resizable(false)
-            .exact_width(180.0)
+            .exact_width(36.0)
+            .frame(egui::Frame::side_top_panel(&ctx.style()).inner_margin(egui::Margin::symmetric(4, 4)))
             .show(ctx, |ui| {
-                ui.add_space(110.0);
-                ui.heading(t("Painel de pintura"));
-                ui.separator();
-                egui::ScrollArea::vertical().show(ui, |ui| {
+                ui.spacing_mut().item_spacing.y = 4.0;
+                ui.style_mut().interaction.tooltip_delay = 2.0;
+                ui.style_mut().interaction.tooltip_grace_time = 0.0;
+                egui::ScrollArea::vertical()
+                    .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+                    .show(ui, |ui| {
                     ui.add_enabled_ui(available && self.start.is_none() && !self.pending(), |ui| {
                         for (tool, label, index) in [
                             (Tool::Hand, "Mão", 12),
@@ -95,6 +155,7 @@ impl Editor {
                             (Tool::Crop, "Recortar", 10),
                             (Tool::Eyedropper, "Conta-gotas", 5),
                             (Tool::Heal, "Correção localizada", 2),
+                            (Tool::Remove, "Remover", 13),
                             (Tool::Brush, "Pincel", 0),
                             (Tool::Clone, "Carimbo", 7),
                             (Tool::Bucket, "Balde de tinta", 1),
@@ -104,72 +165,117 @@ impl Editor {
                             (Tool::Line, "Linha", 8),
                             (Tool::Arrow, "Seta", 6),
                         ] {
-                            ui.horizontal(|ui| {
-                                let (rect, response) =
-                                    ui.allocate_exact_size(Vec2::splat(28.0), egui::Sense::click());
-                                crate::icons::paint_icon(ui, rect.shrink(3.0), index);
-                                if response.clicked()
-                                    || ui.selectable_label(self.tool == tool, match tool_shortcut(tool) { Some(key) => format!("{} ({key})", t(label)), None => t(label) }).clicked()
-                                {
-                                    self.tool = tool;
-                                    if tool == Tool::Text {
-                                        self.text_requested = true;
-                                    }
-                                    if tool == Tool::Crop {
-                                        self.crop_requested = true;
-                                    }
-                                }
-                            });
-                        }
-                        ui.separator();
-                        if !matches!(
-                            self.tool,
-                            Tool::Hand | Tool::Eyedropper | Tool::Select | Tool::Crop | Tool::Text
-                        ) {
-                            ui.label(t("Tamanho (pixels da imagem)"));
-                            ui.add(
-                                egui::Slider::new(&mut self.diameter, 1.0..=512.0)
-                                    .logarithmic(true),
-                            );
-                        }
-                        if self.tool == Tool::Brush {
-                            ui.label(t("Dureza"));
-                            ui.add(
-                                egui::Slider::new(&mut self.hardness, 0.0..=1.0)
-                                    .custom_formatter(|n, _| format!("{:.0}%", n * 100.0)),
-                            );
-                        }
-                        if self.tool == Tool::Bucket {
-                            ui.label(t("Tolerância"));
-                            ui.add(egui::Slider::new(&mut self.tolerance, 0..=255));
-                        }
-                        if matches!(self.tool, Tool::Ellipse | Tool::Rectangle) {
-                            ui.checkbox(&mut self.filled, t("Preencher forma"));
-                        }
-                        if !matches!(
-                            self.tool,
-                            Tool::Hand | Tool::Heal | Tool::Clone | Tool::Select | Tool::Crop | Tool::Text
-                        ) {
-                            preferences::color_button(ui, &t("Cor"), &mut self.color);
+                            let hint = match tool_shortcut(tool) {
+                                Some(key) => format!("{} ({key})", t(label)),
+                                None => t(label),
+                            };
+                            let (rect, response) = ui.allocate_exact_size(Vec2::splat(28.0), egui::Sense::click());
+                            response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), &hint));
+                            let visuals = ui.style().interact_selectable(&response, self.tool == tool);
+                            ui.painter().rect(rect, 4.0, visuals.weak_bg_fill, visuals.bg_stroke, egui::StrokeKind::Inside);
+                            crate::icons::paint_icon(ui, rect.shrink(3.0), index);
+                            let response = response.on_hover_text(hint);
+                            if response.clicked() || response.secondary_clicked() {
+                                self.select_tool(tool);
+                            }
                         }
                     });
-                    if self.floating.is_some() {
-                        ui.separator();
-                        ui.horizontal(|ui| {
-                            if ui.button(t("Aplicar")).clicked() {
-                                self.selection_action = Some(true);
-                            }
-                            if ui.button(t("Cancelar")).clicked() {
-                                self.selection_action = Some(false);
-                            }
-                        });
-                    }
-                    if let Some(text) = &mut self.text {
-                        text.panel(ui);
-                        text.refresh(ui.ctx());
-                    }
                 });
             });
+        if let Some(text) = &mut self.text { text.refresh(ctx); }
+    }
+    fn tool_options(&mut self, ui: &mut egui::Ui, available: bool) {
+        if self.tool == Tool::Text {
+            if let Some(text) = &mut self.text { text.panel(ui); }
+            return;
+        }
+        ui.add_enabled_ui(available && self.start.is_none() && !self.pending(), |ui| {
+            if self.tool == Tool::Crop { self.crop_options(ui); }
+            if !matches!(self.tool, Tool::Hand | Tool::Eyedropper | Tool::Select | Tool::Crop | Tool::Text) {
+                ui.label(t(if matches!(self.tool, Tool::Rectangle | Tool::Ellipse) { "Espessura" } else { "Tamanho" }));
+                ui.add(egui::Slider::new(&mut self.diameter, 1.0..=512.0).logarithmic(true).suffix(" px"));
+            }
+            if self.tool == Tool::Brush {
+                ui.label(t("Dureza"));
+                ui.add(egui::Slider::new(&mut self.hardness, 0.0..=1.0)
+                    .custom_formatter(|n, _| format!("{:.0}%", n * 100.0)));
+            }
+            if self.tool == Tool::Bucket {
+                ui.label(t("Tolerância"));
+                ui.add(egui::Slider::new(&mut self.tolerance, 0..=255));
+            }
+            if matches!(self.tool, Tool::Ellipse | Tool::Rectangle) {
+                preferences::color_swatch(ui, &t("Contorno"), &mut self.color);
+                ui.checkbox(&mut self.filled, t("Preencher forma"));
+                ui.add_enabled_ui(self.filled, |ui| {
+                    preferences::color_swatch(ui, &t("Preenchimento"), &mut self.fill_color);
+                });
+            } else if !matches!(self.tool, Tool::Hand | Tool::Heal | Tool::Remove | Tool::Clone | Tool::Select | Tool::Crop | Tool::Text) {
+                let label=if matches!(self.tool,Tool::Brush|Tool::Eyedropper) {String::new()}else{t("Cor")};
+                preferences::color_swatch(ui, &label, &mut self.color);
+            }
+            if self.tool == Tool::Eyedropper {
+                ui.label("HEX");
+                hex_color_button(ui,self.color);
+            }
+        });
+        if self.floating.is_some() {
+            if ui.button(t("Aplicar")).clicked() { self.selection_action = Some(true); }
+            if ui.button(t("Cancelar")).clicked() { self.selection_action = Some(false); }
+        }
+    }
+    pub fn sync_crop(&mut self, ratio: Option<f32>, dimensions: (u32,u32)) {
+        self.crop_dimensions = dimensions;
+        if self.crop_ratio != ratio {
+            self.crop_ratio = ratio;
+            if let Some(ratio) = ratio {
+                if parsed_ratio(&self.crop_width,&self.crop_height).is_none_or(|r|(r-ratio).abs()>0.0001) {
+                    if let Some((label,_)) = crate::RATIOS.iter().find(|(_,r)|r.is_some_and(|r|(r-ratio).abs()<0.0001)) {
+                        if let Some((w,h)) = label.split_once(':') {
+                            self.crop_width = w.into(); self.crop_height = h.into();
+                            return;
+                        }
+                    }
+                    self.crop_width = format!("{ratio:.4}"); self.crop_height = "1".into();
+                }
+            } else { self.crop_width.clear(); self.crop_height.clear(); }
+        }
+    }
+    fn crop_options(&mut self, ui: &mut egui::Ui) {
+        ui.label(t("Proporção"));
+        let label = crate::RATIOS.iter().find(|(_,r)| *r == self.crop_ratio)
+            .map(|(label,_)| *label).unwrap_or("Proporção manual");
+        egui::ComboBox::from_id_salt("paint_crop_ratio").width(125.0).selected_text(t(label))
+            .show_ui(ui,|ui| {
+                for (label,ratio) in crate::RATIOS {
+                    if ui.selectable_label(self.crop_ratio == ratio,t(label)).clicked() {
+                        self.crop_ratio_requested = Some(ratio);
+                        if let Some((w,h)) = label.split_once(':') {
+                            self.crop_width = w.into(); self.crop_height = h.into();
+                        } else if ratio.is_some() {
+                            self.crop_width = self.crop_dimensions.0.to_string();
+                            self.crop_height = self.crop_dimensions.1.to_string();
+                        } else { self.crop_width.clear(); self.crop_height.clear(); }
+                    }
+                }
+                if ui.selectable_label(false,t("Proporção manual")).clicked() {
+                    self.crop_width = "2".into(); self.crop_height = "1".into();
+                    self.crop_ratio_requested = Some(Some(2.0));
+                }
+            });
+        let width = ui.add(egui::TextEdit::singleline(&mut self.crop_width).desired_width(56.0).hint_text(t("Largura")))
+            .on_hover_text(t("Largura"));
+        let invert = crate::icons::invert_ratio_button(ui).clicked();
+        let height = ui.add(egui::TextEdit::singleline(&mut self.crop_height).desired_width(56.0).hint_text(t("Altura")))
+            .on_hover_text(t("Altura"));
+        if invert { std::mem::swap(&mut self.crop_width,&mut self.crop_height); }
+        if width.changed() || height.changed() || invert {
+            if self.crop_width.trim().is_empty() && self.crop_height.trim().is_empty() {
+                self.crop_ratio_requested = Some(None);
+            } else if let Some(ratio) = parsed_ratio(&self.crop_width,&self.crop_height) {
+                self.crop_ratio_requested = Some(Some(ratio));
+            }
+        }
     }
     pub fn begin_brush(&mut self, ctx: &egui::Context, source: &RgbaImage) {
         self.pixels = Some(source.clone());
@@ -269,6 +375,7 @@ impl Editor {
         }
     }
     pub fn reset_gesture(&mut self) {
+        self.heal_preview.clear();
         self.constraint_anchor = None;
         self.constraint_axis = None;
         self.start = None;
@@ -278,7 +385,7 @@ impl Editor {
         self.pixels = None;
     }
     pub fn cursor(&self, painter: &egui::Painter, point: Pos2, sx: f32, sy: f32) {
-        if !matches!(self.tool, Tool::Brush | Tool::Heal | Tool::Clone) {
+        if !matches!(self.tool, Tool::Brush | Tool::Heal | Tool::Remove | Tool::Clone) {
             return;
         }
         let radius = brush_radius(self.diameter, sx, sy);
@@ -292,33 +399,18 @@ impl Editor {
     }
     pub fn shape_preview(&self, painter: &egui::Painter, rect: Rect, scale: f32) {
         let color = Color32::from_rgb(self.color[0], self.color[1], self.color[2]);
+        let fill = Color32::from_rgb(self.fill_color[0], self.fill_color[1], self.fill_color[2]);
         if self.filled {
-            if self.tool == Tool::Rectangle {
-                painter.rect_filled(rect, 0.0, color);
-            } else {
-                painter.add(egui::epaint::EllipseShape::filled(
-                    rect.center(),
-                    rect.size() * 0.5,
-                    color,
-                ));
-            }
-            return;
+            if self.tool == Tool::Rectangle { painter.rect_filled(rect, 0.0, fill); }
+            else { painter.add(egui::epaint::EllipseShape::filled(rect.center(), rect.size()*0.5, fill)); }
         }
         if self.tool == Tool::Rectangle {
-            painter.rect_stroke(
-                rect,
-                0.0,
-                Stroke::new(self.diameter * scale, color),
-                egui::StrokeKind::Inside,
-            );
+            painter.rect_stroke(rect, 0.0, Stroke::new(self.diameter*scale, color), egui::StrokeKind::Middle);
         } else {
-            painter.add(egui::epaint::EllipseShape::stroke(
-                rect.center(),
-                rect.size() * 0.5,
-                Stroke::new(self.diameter * scale, color),
-            ));
+            painter.add(egui::epaint::EllipseShape::stroke(rect.center(), rect.size()*0.5, Stroke::new(self.diameter*scale, color)));
         }
     }
+
 }
 
 fn brush_radius(diameter: f32, sx: f32, sy: f32) -> Vec2 {
@@ -557,20 +649,30 @@ mod adjustment_tests {
     }
 }
 
-pub fn shortcut_tool(key: egui::Key, modifiers: egui::Modifiers) -> Option<Tool> {
-    if modifiers.ctrl || modifiers.command || modifiers.alt || modifiers.shift { return None; }
-    match key {
-        egui::Key::B => Some(Tool::Brush),
-        egui::Key::H => Some(Tool::Hand),
-        egui::Key::J => Some(Tool::Heal),
-        egui::Key::U => Some(Tool::Rectangle),
-        _ => None,
-    }
+fn hex_color_button(ui: &mut egui::Ui,color: [u8;3]) -> egui::Response {
+    let hex=format!("#{:02X}{:02X}{:02X}",color[0],color[1],color[2]);
+    let response=ui.button(egui::RichText::new(&hex).monospace())
+        .on_hover_text(t("Copiar código hexadecimal"))
+        .on_hover_cursor(egui::CursorIcon::PointingHand);
+    if response.clicked() {ui.ctx().copy_text(hex);}
+    response
+}
+fn parsed_ratio(width: &str,height: &str) -> Option<f32> {
+    let w: f32 = width.trim().replace(',',".").parse().ok()?;
+    let h: f32 = height.trim().replace(',',".").parse().ok()?;
+    let ratio = w/h;
+    (w > 0.0 && h > 0.0 && ratio.is_finite() && ratio > 0.0).then_some(ratio)
+}
+fn is_shape(tool: Tool) -> bool {
+    matches!(tool, Tool::Rectangle | Tool::Ellipse | Tool::Line | Tool::Arrow)
 }
 fn tool_shortcut(tool: Tool) -> Option<&'static str> {
     match tool {
         Tool::Brush => Some("B"), Tool::Hand => Some("H"),
-        Tool::Heal => Some("J"), Tool::Rectangle => Some("U"), _ => None,
+        Tool::Heal | Tool::Remove => Some("J / Shift+J"), Tool::Clone => Some("S"), Tool::Eyedropper => Some("I"),
+        Tool::Bucket => Some("G"), Tool::Select => Some("M / V"),
+        Tool::Text => Some("T"), Tool::Crop => Some("C"),
+        Tool::Rectangle | Tool::Ellipse | Tool::Line | Tool::Arrow => Some("U / Shift+U"),
     }
 }
 #[cfg(test)]
@@ -578,12 +680,102 @@ mod shortcut_tests {
     use super::*;
     #[test]
     fn tool_keys_leave_modified_shortcuts_intact() {
-        assert!(shortcut_tool(egui::Key::S, egui::Modifiers::NONE).is_none());
-        for (key, tool) in [(egui::Key::B,Tool::Brush),(egui::Key::H,Tool::Hand),(egui::Key::J,Tool::Heal),(egui::Key::U,Tool::Rectangle)] {
-            assert!(shortcut_tool(key,egui::Modifiers::NONE) == Some(tool));
-            for modifiers in [egui::Modifiers::CTRL,egui::Modifiers::ALT,egui::Modifiers::SHIFT,egui::Modifiers::COMMAND] {
-                assert!(shortcut_tool(key,modifiers).is_none());
+        let editor = Editor::new();
+        for (key, tool) in [(egui::Key::B,Tool::Brush),(egui::Key::H,Tool::Hand),(egui::Key::J,Tool::Heal),(egui::Key::U,Tool::Rectangle),
+            (egui::Key::S,Tool::Clone),(egui::Key::I,Tool::Eyedropper),(egui::Key::G,Tool::Bucket),
+            (egui::Key::M,Tool::Select),(egui::Key::V,Tool::Select),(egui::Key::C,Tool::Crop),(egui::Key::T,Tool::Text)] {
+            assert!(editor.shortcut_tool(key,egui::Modifiers::NONE) == Some(tool));
+            for modifiers in [egui::Modifiers::CTRL,egui::Modifiers::ALT,egui::Modifiers::COMMAND] {
+                assert!(editor.shortcut_tool(key,modifiers).is_none());
             }
+            if !matches!(key,egui::Key::U|egui::Key::J) { assert!(editor.shortcut_tool(key,egui::Modifiers::SHIFT).is_none()); }
         }
+    }
+    #[test]
+    fn retouch_shortcut_cycles_and_remembers_the_remove_tool() {
+        let mut editor=Editor::new();
+        assert!(editor.shortcut_tool(egui::Key::J,egui::Modifiers::SHIFT)==Some(Tool::Remove));
+        editor.select_tool(Tool::Remove);editor.select_tool(Tool::Brush);
+        assert!(editor.shortcut_tool(egui::Key::J,egui::Modifiers::NONE)==Some(Tool::Remove));
+        assert!(editor.shortcut_tool(egui::Key::J,egui::Modifiers::SHIFT)==Some(Tool::Heal));
+    }
+    #[test]
+    fn shape_cycle_remembers_the_last_shape_and_requests_match_buttons() {
+        let mut editor = Editor::new();
+        editor.select_tool(Tool::Rectangle);
+        for expected in [Tool::Ellipse,Tool::Line,Tool::Arrow,Tool::Rectangle] {
+            let tool = editor.shortcut_tool(egui::Key::U,egui::Modifiers::SHIFT).unwrap();
+            assert!(tool == expected);
+            editor.select_tool(tool);
+        }
+        editor.select_tool(Tool::Arrow);
+        editor.select_tool(Tool::Brush);
+        assert!(editor.shortcut_tool(egui::Key::U,egui::Modifiers::NONE) == Some(Tool::Arrow));
+        editor.select_tool(Tool::Crop);
+        assert!(editor.crop_requested);
+        editor.select_tool(Tool::Text);
+        assert!(editor.text_requested);
+    }
+}
+
+#[cfg(test)]
+mod controls_layout_tests {
+    use super::*;
+    #[test]
+    fn clicking_hex_code_copies_the_current_rgb_value() {
+        let ctx=egui::Context::default();
+        let mut rect=Rect::NOTHING;
+        for phase in 0..3 {
+            let events=if phase==0 {vec![]} else {vec![
+                egui::Event::PointerMoved(rect.center()),
+                egui::Event::PointerButton {pos:rect.center(),button:egui::PointerButton::Primary,
+                    pressed:phase==1,modifiers:egui::Modifiers::NONE},
+            ]};
+            let output=ctx.run(egui::RawInput {events,screen_rect:Some(Rect::from_min_size(Pos2::ZERO,Vec2::new(500.0,100.0))),..Default::default()},|ctx| {
+                egui::CentralPanel::default().show(ctx,|ui|{rect=hex_color_button(ui,[0,171,255]).rect;});
+            });
+            if phase==2 {assert!(output.platform_output.commands.iter().any(|command|
+                matches!(command,egui::OutputCommand::CopyText(text) if text=="#00ABFF")));}
+        }
+    }
+    #[test]
+    fn switching_tools_keeps_the_canvas_and_narrow_toolbar_in_place() {
+        let mut reference = None;
+        for tool in [Tool::Hand, Tool::Brush, Tool::Clone, Tool::Rectangle, Tool::Ellipse, Tool::Text] {
+            let ctx = egui::Context::default();
+            let mut editor = Editor::new();
+            editor.enabled = true;
+            editor.tool = tool;
+            let image = std::sync::Arc::new(RgbaImage::new(100,100));
+            if tool == Tool::Text { editor.text = Some(crate::text_layer::TextLayer::new(&image,[0;3])); }
+            let mut canvas = Rect::NOTHING;
+            let _ = ctx.run(egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1100.0, 800.0))),
+                ..Default::default()
+            }, |ctx| {
+                editor.panel(ctx, true, 60.0);
+                egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| { canvas = ui.max_rect(); });
+            });
+            assert!(canvas.left() <= 48.0, "toolbar expanded");
+            assert!(canvas.top() <= 108.0, "controls overflowed the reserved row: {canvas:?}");
+            if let Some(previous) = reference { assert_eq!(canvas, previous); }
+            else { reference = Some(canvas); }
+        }
+    }
+    #[test]
+    fn crop_ratio_fields_validate_and_preserve_custom_values() {
+        assert_eq!(parsed_ratio("16","9"),Some(16.0/9.0));
+        assert_eq!(parsed_ratio("1,5","1"),Some(1.5));
+        for (w,h) in [("0","1"),("1","0"),("NaN","1"),("inf","1"),("-2","1"),("","9")] {
+            assert!(parsed_ratio(w,h).is_none());
+        }
+        let mut editor = Editor::new();
+        editor.sync_crop(Some(16.0/9.0),(1920,1080));
+        assert_eq!((&*editor.crop_width,&*editor.crop_height),("16","9"));
+        editor.crop_width="30".into(); editor.crop_height="20".into();
+        editor.sync_crop(Some(1.5),(1920,1080));
+        assert_eq!((&*editor.crop_width,&*editor.crop_height),("30","20"));
+        editor.sync_crop(None,(1920,1080));
+        assert!(editor.crop_width.is_empty() && editor.crop_height.is_empty());
     }
 }

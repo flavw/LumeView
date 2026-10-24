@@ -6,6 +6,7 @@ pub enum Tool {
     Brush,
     Bucket,
     Heal,
+    Remove,
     Rectangle,
     Ellipse,
     Eyedropper,
@@ -160,7 +161,7 @@ pub fn shape(
     width: f32,
     color: [u8; 3],
     ellipse: bool,
-    filled: bool,
+    fill: Option<[u8; 3]>,
 ) {
     let min = [a[0].min(b[0]), a[1].min(b[1])];
     let max = [a[0].max(b[0]), a[1].max(b[1])];
@@ -184,11 +185,11 @@ pub fn shape(
                 let qy = (py - center[1]).abs() - radii[1];
                 qx.max(0.0).hypot(qy.max(0.0)) + qx.max(qy).min(0.0)
             };
-            let coverage = if filled {
-                (0.5 - distance).clamp(0.0, 1.0)
-            } else {
-                (width * 0.5 + 0.5 - distance.abs()).clamp(0.0, 1.0)
-            };
+            if let Some(fill) = fill {
+                let coverage = (0.5 - distance).clamp(0.0, 1.0);
+                if coverage > 0.0 { blend(im.get_pixel_mut(x, y), fill, coverage); }
+            }
+            let coverage = (width * 0.5 + 0.5 - distance.abs()).clamp(0.0, 1.0);
             if coverage > 0.0 {
                 blend(im.get_pixel_mut(x, y), color, coverage);
             }
@@ -330,6 +331,17 @@ mod tests {
         assert_eq!(*im.get_pixel(0, 0), Rgba([200, 100, 50, 255]));
     }
     #[test]
+    fn filled_shapes_keep_independent_outline_and_fill_colors() {
+        for ellipse in [false, true] {
+            let mut image = RgbaImage::new(80, 80);
+            shape(&mut image, [20.5, 20.5], [60.5, 60.5], 4.0,
+                [255, 0, 0], ellipse, Some([0, 0, 255]));
+            assert_eq!(image.get_pixel(40, 40).0, [0, 0, 255, 255]);
+            assert_eq!(image.get_pixel(20, 40).0, [255, 0, 0, 255]);
+            assert_eq!(image.get_pixel(0, 0)[3], 0);
+        }
+    }
+    #[test]
     fn shapes_have_hollow_and_filled_modes() {
         let mut im = RgbaImage::new(40, 40);
         shape(
@@ -339,7 +351,7 @@ mod tests {
             2.0,
             [255; 3],
             false,
-            false,
+            None,
         );
         assert_eq!(im.get_pixel(20, 20)[3], 0);
         assert!(im.get_pixel(5, 20)[3] > 0);
@@ -350,7 +362,7 @@ mod tests {
             2.0,
             [255; 3],
             true,
-            true,
+            Some([255; 3]),
         );
         assert_eq!(im.get_pixel(20, 20)[3], 255);
         assert_eq!(im.get_pixel(0, 0)[3], 0);

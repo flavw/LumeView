@@ -1,6 +1,13 @@
 use eframe::egui;
 /// Windows common color dialog; other platforms retain egui's color picker.
 pub fn color_button(ui: &mut egui::Ui, label: &str, color: &mut [u8; 3]) {
+    color_control(ui, label, color, false);
+}
+/// Compact swatch with a separate label, retaining the common color dialog.
+pub fn color_swatch(ui: &mut egui::Ui, label: &str, color: &mut [u8; 3]) {
+    color_control(ui, label, color, true);
+}
+fn color_control(ui: &mut egui::Ui, label: &str, color: &mut [u8; 3], swatch: bool) {
     ui.horizontal(|ui| {
         let preview = egui::Color32::from_rgb(color[0], color[1], color[2]);
         let text = if color.iter().map(|v| *v as u16).sum::<u16>() > 384 {
@@ -9,10 +16,18 @@ pub fn color_button(ui: &mut egui::Ui, label: &str, color: &mut [u8; 3]) {
             egui::Color32::WHITE
         };
         #[cfg(windows)]
-        if ui
-            .add(egui::Button::new(egui::RichText::new(label).color(text)).fill(preview))
-            .clicked()
-        {
+        let response = if swatch {
+            let accessible_label=if label.is_empty(){crate::i18n::t("Cor")}else{label.to_owned()};
+            let response = ui.add_sized([22.0,22.0],egui::Button::new("").fill(preview)
+                .stroke(egui::Stroke::new(1.0_f32,ui.visuals().widgets.noninteractive.fg_stroke.color)));
+            response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button,ui.is_enabled(),&accessible_label));
+            if !label.is_empty(){ui.label(label);}
+            response.on_hover_text(accessible_label)
+        } else {
+            ui.add(egui::Button::new(egui::RichText::new(label).color(text)).fill(preview))
+        };
+        #[cfg(windows)]
+        if response.clicked() {
             use windows_sys::Win32::UI::{
                 Controls::Dialogs::{ChooseColorW, CC_FULLOPEN, CC_RGBINIT, CHOOSECOLORW},
                 Input::KeyboardAndMouse::GetActiveWindow,
@@ -34,8 +49,8 @@ pub fn color_button(ui: &mut egui::Ui, label: &str, color: &mut [u8; 3]) {
         }
         #[cfg(not(windows))]
         {
-            ui.label(egui::RichText::new(label).color(text));
             ui.color_edit_button_srgb(color);
+            if !label.is_empty(){ui.label(label);}
         }
     });
 }

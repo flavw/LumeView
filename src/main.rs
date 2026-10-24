@@ -11,6 +11,8 @@ mod animation;
 mod keymap;
 mod comic;
 mod generation;
+mod heal_preview;
+mod remove;
 mod i18n;
 mod icons;
 mod image_details;
@@ -279,6 +281,7 @@ impl App {
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_else(|| Settings { language: i18n::system_language(), ..Settings::default() });
         i18n::set_language(settings.language);
+        keymap::migrate_jpeg_shortcut(&mut settings.shortcuts);
         if let Some(binding)=settings.shortcuts.remove("Ctrl+Shift+S") {
             if binding!="Ctrl+Shift+S" {settings.shortcuts.entry("W".into()).or_insert(binding);}
         }
@@ -1505,9 +1508,9 @@ impl App {
                 continue;
             }
             if self.editor.enabled && !self.fullscreen {
-                if let Some(tool) = editor::shortcut_tool(key,m) {
-                    if !self.busy && self.loading.is_none() && self.editor.start.is_none() && !self.editor.pending() {
-                        self.editor.tool = tool;
+                if let Some(tool) = self.editor.shortcut_tool(key,m) {
+                    if !repeat && !self.busy && self.loading.is_none() && self.editor.start.is_none() && !self.editor.pending() {
+                        self.editor.select_tool(tool);
                     }
                     continue;
                 }
@@ -1683,7 +1686,7 @@ impl App {
                     Key::C if !m.alt && !m.shift && !repeat => self.toggle_zoom_alignment(),
                     Key::R if !m.alt && !m.shift && !repeat && self.image.is_some() => self.rotate_view(Some(true)),
                     Key::I => self.show_information(),
-                    Key::S => self.export_dialog(Format::Jpeg),
+                    Key::E => self.export_dialog(Format::Jpeg),
                     Key::W => self.export_dialog(Format::Webp),
                     Key::Q => self.export_dialog(Format::Png),
                     Key::Delete => {
@@ -1854,7 +1857,7 @@ impl App {
                                 ui.separator();
                                 ui.menu_button(t("Exportar"), |ui| {
                                     for (format, label, shortcut) in [
-                                        (Format::Jpeg, format!("Exportar JPEG (Qld {}%)", self.settings.jpeg_quality), "S"),
+                                        (Format::Jpeg, format!("Exportar JPEG (Qld {}%)", self.settings.jpeg_quality), "E"),
                                         (Format::Png, "Exportar PNG (sem perdas)".to_owned(), "Q"),
                                         (Format::Webp, format!("Exportar WebP (Qld {}%)", self.settings.webp_quality), "W"),
                                     ] {
@@ -2265,7 +2268,7 @@ impl App {
         if self.editor.adjust_brush(ctx,ui,hovered,sx.abs().max(0.001),sy.abs().max(0.001)) { return; }
         if hovered {
             if let Some(p)=pointer {if !(self.editor.start.is_some() && self.editor.tool==paint::Tool::Brush && ctx.input(|i|i.modifiers.shift)){self.editor.cursor(ui.painter(),p,sx,sy);}}
-            if matches!(self.editor.tool,paint::Tool::Brush|paint::Tool::Heal|paint::Tool::Clone){ctx.set_cursor_icon(egui::CursorIcon::None);}
+            if matches!(self.editor.tool,paint::Tool::Brush|paint::Tool::Heal|paint::Tool::Remove|paint::Tool::Clone){ctx.set_cursor_icon(egui::CursorIcon::None);}
             else{ctx.set_cursor_icon(egui::CursorIcon::Crosshair);}
         }
         if self.editor.tool==paint::Tool::Text {
@@ -2332,7 +2335,7 @@ impl App {
             if let Some(last)=self.editor.last {
                 if point!=last {
                     if matches!(self.editor.tool,paint::Tool::Brush|paint::Tool::Clone) {self.editor.stroke(&im,last,point);}
-                    if self.editor.tool==paint::Tool::Heal {self.editor.path.push(point);}
+                    if matches!(self.editor.tool,paint::Tool::Heal|paint::Tool::Remove) {self.editor.path.push(point);}
                 }
             }
             self.editor.last=Some(point);
@@ -2342,9 +2345,9 @@ impl App {
                 let bounds=self.view_rotation.rect(Rect::from_two_pos(a,b),shown.center());
                 self.editor.shape_preview(ui.painter(),bounds,(scale_x*scale_y).sqrt());
             }
-            if self.editor.tool==paint::Tool::Heal {
-                let points:Vec<_>=self.editor.path.iter().map(|p|self.view_rotation.point(source_shown.min+Vec2::new(p[0]*scale_x,p[1]*scale_y),shown.center())).collect();
-                if points.len()>1 {ui.painter().add(egui::Shape::line(points,Stroke::new(self.editor.diameter*(scale_x*scale_y).sqrt(),Color32::from_rgba_unmultiplied(50,170,255,110))));}
+            if matches!(self.editor.tool,paint::Tool::Heal|paint::Tool::Remove) {
+                self.editor.heal_preview.paint(ctx,ui.painter(),&self.editor.path,self.editor.diameter,
+                    im.dimensions(),source_shown,shown,Vec2::new(scale_x,scale_y),self.view_rotation);
             }
             if matches!(self.editor.tool,paint::Tool::Arrow|paint::Tool::Line) {
                 let segments=if self.editor.tool==paint::Tool::Line {vec![[start,point]]}else{paint::arrow_segments(start,point,self.editor.diameter)};
@@ -2361,7 +2364,7 @@ impl App {
                     if self.editor.tool==paint::Tool::Clone {self.editor.clone_image=self.image.as_ref().map(Arc::downgrade);}
                 }else{
                     let tool=self.editor.tool;let diameter=self.editor.diameter;let color=self.editor.color;
-                    let filled=self.editor.filled;let tolerance=self.editor.tolerance;let path=std::mem::take(&mut self.editor.path);
+                    let fill=self.editor.filled.then_some(self.editor.fill_color);let tolerance=self.editor.tolerance;let path=std::mem::take(&mut self.editor.path);
                     self.busy=true;let tx=self.tx.clone();let context=ctx.clone();
                     std::thread::spawn(move||{
                         let mut pixels=(*im).clone();
@@ -2371,7 +2374,8 @@ impl App {
                             paint::Tool::Arrow=>paint::arrow(&mut pixels,start,point,diameter,color),
                             paint::Tool::Bucket=>paint::fill(&mut pixels,start,color,tolerance),
                             paint::Tool::Heal=>{result=paint::heal(&mut pixels,&path,diameter);},
-                            paint::Tool::Rectangle|paint::Tool::Ellipse=>paint::shape(&mut pixels,start,point,diameter,color,tool==paint::Tool::Ellipse,filled),
+                            paint::Tool::Remove=>{result=remove::apply(&mut pixels,&path,diameter);},
+                            paint::Tool::Rectangle|paint::Tool::Ellipse=>paint::shape(&mut pixels,start,point,diameter,color,tool==paint::Tool::Ellipse,fill),
                             _=>{}
                         }
                         let _=tx.send(Message::Painted(im,result.map(|_|pixels)));context.request_repaint();
@@ -2444,7 +2448,7 @@ impl App {
                                 y: ((origin.y - shown.min.y) / sy).floor().clamp(0.0, h.saturating_sub(1) as f32) as u32,
                                 w: 1, h: 1,
                             };
-                            view_ratio = None;
+                            if !(self.editor.enabled && self.editor.tool==paint::Tool::Crop) { view_ratio = None; }
                             self.lossless = false;
                             view_selection = Some(crop);
                             self.drag_start = Some((origin, crop, 0));
@@ -2980,8 +2984,11 @@ impl App {
                             ("+ ou = / −","Ampliar / reduzir"),("1–7","Modos de ajuste, conforme menu Exibir"),("Enter / F","Tela cheia / janela"),("Duplo clique esquerdo","Tela cheia / janela"),("T","Mostrar / ocultar título da arte (tela cheia)"),
                             ("Esc","Cancelar seleção, sair da tela cheia ou fechar"),("F2 / F6","Renomear, incluindo extensão"),("F5","Recarregar imagem e pasta"),
                             ("F7 / F8","Mover / copiar arquivo"),("Del / Shift+Del","Lixeira / exclusão permanente, com confirmação"),("F11","Ocultar / mostrar cursor em tela cheia"),
-                            ("B / H / J / U","No painel de pintura: pincel / mão / correção localizada / retângulo"),
-                            ("R","Girar exibição 90° à direita"),("F12","Painel de pintura"),("I","Informações da imagem"),("P","Preferências"),("C","Alternar zoom entre centro e canto superior esquerdo"),("S","Exportar JPEG"),("W","Exportar WebP"),("Q","Exportar PNG"),("Ctrl+P","Imprimir"),("Ctrl+O","Abrir imagem"),("Ctrl+S","Salvar imagem"),("Ctrl+A","Selecionar / desselecionar tudo"),
+                            ("B / H / J / S / I","Pintura: pincel / mão / correção localizada / carimbo / conta-gotas"),
+                            ("M ou V / C / G / T","Pintura: selecionar e mover / recortar / balde de tinta / texto"),
+                            ("U / Shift+U","Pintura: última forma / alternar entre formas"),
+                            ("Shift+J","Pintura: alternar correção localizada / remover"),
+                            ("R","Girar exibição 90° à direita"),("F12","Painel de pintura"),("I","Informações da imagem"),("P","Preferências"),("C","Alternar zoom entre centro e canto superior esquerdo"),("E","Exportar JPEG"),("W","Exportar WebP"),("Q","Exportar PNG"),("Ctrl+P","Imprimir"),("Ctrl+O","Abrir imagem"),("Ctrl+S","Salvar imagem"),("Ctrl+A","Selecionar / desselecionar tudo"),
                             ("Ctrl+Y","Aplicar recorte selecionado"),("Ctrl+Shift+L","Iniciar recorte JPEG sem perdas"),("Ctrl + setas","Redimensionar seleção proporcionalmente"),
                             ("Shift + setas","Mover seleção em passos maiores"),("Alt + setas","Alterar largura / altura da seleção"),
                             ("Ctrl+Z / Ctrl+J","Desfazer / refazer edições"),("Ctrl+C / Ctrl+Insert","Copiar imagem ou seleção"),("Ctrl+V","Colar como nova imagem"),
@@ -3314,7 +3321,8 @@ impl eframe::App for App {
                 ctx.request_repaint_after(self.animation_deadline.saturating_duration_since(now));
             } else {self.animation_deadline=Instant::now()+self.animation.as_ref().unwrap().frames[self.animation_index].1;}
         }
-        if !self.fullscreen {self.editor.panel(ctx,self.image.is_some() && !self.busy && self.loading.is_none());}
+        self.editor.sync_crop(self.ratio,self.dimensions());
+        if !self.fullscreen {self.editor.panel(ctx,self.image.is_some() && !self.busy && self.loading.is_none(),self.menu_bottom + if self.settings.show_toolbar {30.0} else {0.0});}
         if std::mem::take(&mut self.editor.text_requested) {
             if let Some(image)=&self.image {self.editor.text=Some(text_layer::TextLayer::new(image,self.editor.color));self.selection=None;self.slide=false;self.animation_paused=true;ctx.request_repaint();}
         }
@@ -3323,12 +3331,16 @@ impl eframe::App for App {
                 if apply {
                     if let (Some(im),Some(pixels))=(self.image.clone().filter(|im|text.image.upgrade().is_some_and(|source|Arc::ptr_eq(&source,im))),text.pixels) {
                         self.busy=true;let tx=self.tx.clone();let context=ctx.clone();
-                        std::thread::spawn(move||{let mut result=(*im).clone();image::imageops::overlay(&mut result,&*pixels,i64::from(text.position[0]),i64::from(text.position[1]));let _=tx.send(Message::Painted(im,Ok(result)));context.request_repaint();});
+                        std::thread::spawn(move||{let mut result=(*im).clone();image::imageops::overlay(&mut result,&*pixels,i64::from(text.position[0]-text.inset),i64::from(text.position[1]-text.inset));let _=tx.send(Message::Painted(im,Ok(result)));context.request_repaint();});
                     }
                 }
             }
         }
-        if std::mem::take(&mut self.editor.crop_requested){self.select_entire_image();}
+        if std::mem::take(&mut self.editor.crop_requested) {
+            if self.ratio.is_some() { self.begin_crop(self.ratio,false); }
+            else { self.lossless=false; self.select_entire_image(); }
+        }
+        if let Some(ratio)=self.editor.crop_ratio_requested.take() { self.begin_crop(ratio,false); }
         if let Some(apply)=self.editor.selection_action.take() {
             if let Some(floating)=self.editor.floating.take() {
                 if apply && floating.offset!=[0,0] {
