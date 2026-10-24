@@ -211,7 +211,7 @@ impl Editor {
                     preferences::color_swatch(ui, &t("Preenchimento"), &mut self.fill_color);
                 });
             } else if !matches!(self.tool, Tool::Hand | Tool::Heal | Tool::Remove | Tool::Clone | Tool::Select | Tool::Crop | Tool::Text) {
-                let label=if matches!(self.tool,Tool::Brush|Tool::Eyedropper) {String::new()}else{t("Cor")};
+                let label=if self.tool == Tool::Eyedropper {String::new()}else{t("Cor")};
                 preferences::color_swatch(ui, &label, &mut self.color);
             }
             if self.tool == Tool::Eyedropper {

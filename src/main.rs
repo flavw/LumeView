@@ -186,7 +186,6 @@ enum Dialog {
         start: String,
         convert: bool,
     },
-    Overwrite(PathBuf, Format),
 }
 enum Message {
     Painted(Arc<RgbaImage>,backend::Result<RgbaImage>),
@@ -1104,12 +1103,8 @@ impl App {
             }
         }
         if let Some(p) = d.save_file() {
-            let p = p.with_extension(format.ext());
-            if p.exists() {
-                self.dialog = Some(Dialog::Overwrite(p, format));
-            } else {
-                self.export_to(p, format);
-            }
+            // The native dialog already confirms replacement of this exact path.
+            self.export_to(p, format);
         }
     }
     fn export_to(&mut self, p: PathBuf, format: Format) {
@@ -2663,7 +2658,6 @@ impl App {
             Dialog::Settings => "Preferências",
             Dialog::Search(_) => "Procurar na pasta",
             Dialog::Batch { .. } => "Converter em lote",
-            Dialog::Overwrite(..) => "Substituir arquivo",
         };
         let art_kind = match &dialog {
             Dialog::Delete { .. } => Some((dialog_art::Kind::Delete,440.0)),
@@ -2832,7 +2826,6 @@ impl App {
                     });
                     ui.small(t("Enter: confirmar opção · Tab: alternar · Esc: cancelar"));
                 },
-                Dialog::Overwrite(p,f)=>{ui.set_width(440.0);ui.label(t("Substituir arquivo"));dialog_file(ui,p);if ui.button(t("Substituir")).clicked(){self.export_to(p.clone(),*f);keep=false;}},
                 Dialog::Information=>{
                     ui.set_width(600.0);
                     if ui.button(t("Copiar tudo")).clicked(){
@@ -3111,7 +3104,7 @@ impl App {
             } else {content(ui);}
             if !matches!(dialog,Dialog::Delete { .. }|Dialog::FolderEnd { .. }|Dialog::Unsaved { .. }){
                 ui.add_space(4.0);ui.separator();
-                let label=if matches!(dialog,Dialog::Effect(..)|Dialog::Rename(..)|Dialog::Resize(..)|Dialog::ManualRatio{..}|Dialog::SaveOriginal(_)|Dialog::SaveAs{..}|Dialog::Overwrite(..)|Dialog::Batch{..}){"Cancelar"}else{"Fechar"};
+                let label=if matches!(dialog,Dialog::Effect(..)|Dialog::Rename(..)|Dialog::Resize(..)|Dialog::ManualRatio{..}|Dialog::SaveOriginal(_)|Dialog::SaveAs{..}|Dialog::Batch{..}){"Cancelar"}else{"Fechar"};
                 if ui.button(t(label)).clicked(){keep=false;}
             }
             ui.add_space(4.0);

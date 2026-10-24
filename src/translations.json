@@ -1,4 +1,5 @@
 {
+  "Color": ["Color", "Couleur"],
   "Copy hexadecimal color code": ["Copiar código de color hexadecimal", "Copier le code couleur hexadécimal"],
   "Remove": ["Eliminar", "Supprimer"],
   "Paint: cycle spot healing / remove": ["Pintura: alternar corrección puntual / eliminar", "Peinture : alterner correcteur localisé / supprimer"],

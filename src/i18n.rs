@@ -77,6 +77,7 @@ pub fn t(text: &str) -> String {
 fn english(text: &str) -> String {
     let text = text.trim_end_matches("...").trim_end_matches('…');
     let pairs = [
+        ("Cor", "Color"),
         ("Espessura", "Thickness"),
         ("Contorno", "Outline"),
         ("Preenchimento", "Fill"),
