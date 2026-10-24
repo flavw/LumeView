@@ -1,6 +1,6 @@
 # LumeView
 
-A minimalist image viewer written in Rust, inspired by IrfanView. LumeView focuses on fast folder navigation and simple image cropping for wallpapers, with support for JPEG, PNG, WebP, AVIF, GIF, BMP, TIFF, HEIC, ICO and CBZ comics.
+A minimalist image viewer and basic image editor written in Rust, inspired by IrfanView. Browse folders quickly, crop wallpapers, make simple edits, read CBZ comics and inspect AI generation metadata. Supports JPEG, PNG, WebP, AVIF, GIF and more.
 
 ![LumeView with its default interface](docs/screenshot.png)
 
@@ -16,31 +16,14 @@ See the [manual installation instructions](docs/manual-installation.md).
 
 ## Features
 
-- Fast native decoding of JPEG, PNG and WebP, asynchronous loading and a bounded image cache.
-- Minimal text menus; toolbar enabled by default, optional status bar, and a title bar that can be shown or hidden from View. The title-bar preference is saved.
-- Original-size viewing, seven zoom modes, fullscreen and slideshow.
-- Press **R** to rotate the view 90° clockwise, or use View to rotate clockwise/counterclockwise or reset its orientation. Rotation stays active while browsing during the session and does not change source pixels, saved images or clipboard copies.
-- Animated GIF playback with frame timing and loop counts; pause via View.
-- SVG/SVGZ viewing through the bundled ImageMagick renderer (rasterized for display).
-- Fullscreen title visibility is remembered, with an adjustable translucent black background (75% transparency by default).
-- Lume mascot illustrations load on demand in Delete, Rename, Preferences and Shortcuts dialogs.
-- Fullscreen menus and toolbar fade in at the top-left corner and hide after three seconds away from the controls.
-- Batch resizing by pixels or percentage, with optional aspect-ratio preservation and original-format output. Batch naming supports a base name, digit count and starting number.
-- Customizable primary shortcuts under Edit → Preferences → Shortcuts, with conflict validation and default restoration.
-- Optional top-left alignment for images larger than the viewport, available under Preferences → Viewing. Press C to switch between centered and top-left zoom; the preference is saved.
-- Optional compact Paint dialog (F12): brush with size and hardness controls, clone stamp, spot healing, Remove, fill, shapes, arrows, floating text with optional soft shadow, selections and a hand tool. The eyedropper shows a clickable HEX color code for copying. Supports undo/redo; editing resources load only when used.
-- Remove fills marked areas from surrounding pixels without generative AI. Intended for smooth backgrounds and gradients; cover the entire object, including its edges. Retouching uses a rounded, translucent dark preview.
-- Image effects: black and white, sepia, negative, brightness/contrast, saturation, warm/cool tones and posterization.
-- Ctrl+wheel or Alt+wheel zooms around the mouse pointer.
-- Wallpaper crops: Free, 1:1, 16:9, 9:16, 10:16, 8:16, original and custom aspect ratios; rule-of-thirds grid and resizable handles.
-- Lossless JPEG cropping and rotation through jpegtran. Numbered copies preserve the source; imperfect rotations are rejected.
-- Save Image (Ctrl+S) opens the native Windows Save As dialog with JPEG, PNG and WebP filters and an inline 1–100% JPEG/WebP quality selector. PNG remains lossless. JPEG and WebP export default to quality 80.
-- Create horizontal or vertical panoramas with ordered images, original sizes and an optional colored gap (zero by default). The result opens as a new document for saving.
-- AI generation metadata inspection and copying, including supported Stable Diffusion parameters and ComfyUI JSON stored in PNG, JPEG and WebP metadata.
-- Image information, clipboard images, rename with separate extension field, file copying/moving and deletion confirmation.
-- CBZ comic reading and navigation through individual ICO images; basic adjustments, undo/redo and unsaved-change confirmation.
-- Additional ImageMagick formats have a separate Open filter and are not registered as Windows file associations. PDF, EPS and PostScript are excluded.
-- Dark, light, system and customizable neon themes; English, Portuguese, Spanish and French interfaces.
+- Fast folder navigation, animated GIF playback and support for common image formats, SVG and CBZ comics.
+- Fullscreen viewing, slideshows, seven zoom modes and cursor-centered zoom.
+- Wallpaper cropping with preset or custom aspect ratios, plus lossless JPEG cropping and rotation.
+- Basic editing in Paint dialog: brush, fill, clone stamp, spot healing, Remove, shapes, arrows and floating text, with undo/redo.
+- Image effects and adjustments, including black and white, sepia, brightness, contrast and saturation.
+- Batch resizing, conversion and renaming; horizontal or vertical panorama creation.
+- AI generation metadata inspection, clipboard images and JPEG/PNG/WebP export.
+- Customizable shortcuts, dark/light/neon themes, and English, Portuguese, Spanish and French interfaces.
 
 ## Quick controls
 
