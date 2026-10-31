@@ -241,17 +241,87 @@ const PAINT_SVGS:[&str;14]=[
  include_str!("../assets/icons/paint-ellipse.svg"),include_str!("../assets/icons/paint-eyedropper.svg"),
  include_str!("../assets/icons/paint-arrow.svg"),include_str!("../assets/icons/paint-clone.svg"),include_str!("../assets/icons/paint-line.svg"),include_str!("../assets/icons/paint-select.svg"),include_str!("../assets/icons/paint-crop.svg"),include_str!("../assets/icons/paint-text.svg"),include_str!("../assets/icons/paint-hand.svg"),include_str!("../assets/icons/paint-remove.svg")];
 struct PaintPath { points:Vec<Pos2>,filled:bool,color:Option<egui::Color32>,width:f32 }
+fn svg_attribute<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
+ let key=format!("{name}=\"");
+ let (index,_)=tag.match_indices(&key).find(|(index,_)|*index==0 || tag.as_bytes()[index-1].is_ascii_whitespace())?;
+ tag[index+key.len()..].split('"').next()
+}
+/// The line-only SVG path commands used by the toolbar (absolute and relative).
+fn svg_line_paths(data: &str) -> Vec<Vec<Pos2>> {
+ let mut tokens=Vec::new();
+ let mut number=String::new();
+ for ch in data.chars() {
+  if ch.is_ascii_alphabetic() {
+   if !number.is_empty(){tokens.push(std::mem::take(&mut number));}
+   tokens.push(ch.to_string());
+  } else if ch.is_ascii_digit() || ch=='.' || ch=='-' || ch=='+' {
+   if (ch=='-' || ch=='+') && !number.is_empty(){tokens.push(std::mem::take(&mut number));}
+   number.push(ch);
+  } else if !number.is_empty(){tokens.push(std::mem::take(&mut number));}
+ }
+ if !number.is_empty(){tokens.push(number);}
+ let mut result=Vec::new();let mut path=Vec::new();let mut cursor=Pos2::ZERO;
+ let mut command='M';let mut index=0;
+ while index<tokens.len() {
+  if tokens[index].len()==1 && tokens[index].as_bytes()[0].is_ascii_alphabetic() {
+   command=tokens[index].chars().next().unwrap();index+=1;
+   if matches!(command,'Z'|'z') {
+    if let Some(first)=path.first().copied(){path.push(first);cursor=first;}
+    if path.len()>1{result.push(std::mem::take(&mut path));}
+    continue;
+   }
+  }
+  let relative=command.is_ascii_lowercase();
+  let count=match command.to_ascii_uppercase(){'M'|'L'=>2,'H'|'V'=>1,_=>return Vec::new()};
+  if index+count>tokens.len(){return Vec::new();}
+  let Ok(a)=tokens[index].parse::<f32>() else{return Vec::new()};
+  let b=if count==2{let Ok(b)=tokens[index+1].parse::<f32>() else{return Vec::new()};b}else{0.0};
+  let next=match command.to_ascii_uppercase(){
+   'M'|'L'=>if relative{cursor+Vec2::new(a,b)}else{Pos2::new(a,b)},
+   'H'=>Pos2::new(if relative{cursor.x+a}else{a},cursor.y),
+   _=>Pos2::new(cursor.x,if relative{cursor.y+a}else{a}),
+  };
+  if !next.x.is_finite() || !next.y.is_finite(){return Vec::new();}
+  if matches!(command,'M'|'m') {
+   if path.len()>1{result.push(std::mem::take(&mut path));}else{path.clear();}
+   command=if relative{'l'}else{'L'};
+  }
+  path.push(next);cursor=next;index+=count;
+ }
+ if path.len()>1{result.push(path);}
+ result
+}
+fn svg_rectangle(tag: &str) -> Option<Vec<Pos2>> {
+ let value=|name,default|svg_attribute(tag,name).and_then(|v|v.parse::<f32>().ok()).unwrap_or(default);
+ let x=value("x",0.0);let y=value("y",0.0);let w=value("width",0.0);let h=value("height",0.0);
+ if ![x,y,w,h].iter().all(|v|v.is_finite()) || w<=0.0 || h<=0.0{return None;}
+ let rx=value("rx",value("ry",0.0)).clamp(0.0,w/2.0);
+ let ry=value("ry",rx).clamp(0.0,h/2.0);
+ let mut outline=Vec::new();
+ for (cx,cy,start) in [(x+w-rx,y+ry,-90.0_f32),(x+w-rx,y+h-ry,0.0),(x+rx,y+h-ry,90.0),(x+rx,y+ry,180.0)] {
+  for step in 0..=6 {
+   let angle=(start+step as f32*15.0).to_radians();
+   outline.push(Pos2::new(cx+rx*angle.cos(),cy+ry*angle.sin()));
+  }
+ }
+ outline.push(outline[0]);Some(outline)
+}
 fn paint_paths(svg:&str)->Vec<PaintPath>{
- svg.split('<').filter(|tag|tag.starts_with("polygon ")||tag.starts_with("polyline ")).map(|tag| {
+ let root=svg.split('<').find(|tag|tag.split_whitespace().next()==Some("svg")).unwrap_or("");
+ let inherited_width=svg_attribute(root,"stroke-width").and_then(|v|v.parse::<f32>().ok()).unwrap_or(1.7);
+ svg.split('<').filter(|tag|["polygon ","polyline ","path ","rect "].iter().any(|prefix|tag.starts_with(prefix))).flat_map(|tag| {
   let color=tag.split("=\"#").nth(1).and_then(|value|value.split('"').next())
    .filter(|value|value.len()==6).and_then(|value|u32::from_str_radix(value,16).ok())
    .map(|rgb|egui::Color32::from_rgb((rgb>>16) as u8,(rgb>>8) as u8,rgb as u8));
   let width=tag.split("stroke-width=\"").nth(1).and_then(|value|value.split('"').next())
-   .and_then(|value|value.parse::<f32>().ok()).filter(|width|width.is_finite() && *width>0.0).unwrap_or(1.7);
-  PaintPath{points:points(tag),filled:tag.starts_with("polygon "),color,width}
+   .and_then(|value|value.parse::<f32>().ok()).filter(|width|width.is_finite() && *width>0.0).unwrap_or(inherited_width);
+  let paths=if tag.starts_with("path "){svg_line_paths(svg_attribute(tag,"d").unwrap_or(""))}
+   else if tag.starts_with("rect "){svg_rectangle(tag).into_iter().collect()}
+   else{vec![points(tag)]};
+  paths.into_iter().map(move |points|PaintPath{points,filled:tag.starts_with("polygon "),color,width})
  }).collect()
 }
-/// Render the embedded SVG polygon/polyline subset directly; no bitmap rasterizer.
+/// Cache embedded SVG lines and rounded rectangles once; no bitmap rasterizer.
 pub fn paint_icon(ui:&egui::Ui,rect:egui::Rect,index:usize){
  static PATHS:std::sync::OnceLock<Vec<Vec<PaintPath>>>=std::sync::OnceLock::new();
  let icons=PATHS.get_or_init(||PAINT_SVGS.iter().map(|svg|paint_paths(svg)).collect());
@@ -270,11 +340,21 @@ pub fn paint_icon(ui:&egui::Ui,rect:egui::Rect,index:usize){
   for index in [6,8]{assert!(paint_paths(PAINT_SVGS[index]).iter().all(|path|path.width==2.8));}
  }
  #[test] fn all_paint_svg_paths_are_valid(){for svg in PAINT_SVGS {let paths=paint_paths(svg);assert!(!paths.is_empty());for path in paths {assert!(path.points.len()>=2);assert!(path.points.iter().all(|p|p.x>=0.0&&p.x<=24.0&&p.y>=0.0&&p.y<=24.0));}}}
- #[test] fn bandages_have_identical_geometry_and_remove_only_adds_sparkles(){
+ #[test] fn updated_bandages_keep_lines_dots_and_rounded_rectangles(){
   let heal=paint_paths(PAINT_SVGS[2]);let remove=paint_paths(PAINT_SVGS[13]);
-  assert!(remove.len()>heal.len());
-  for (a,b) in heal.iter().zip(&remove){assert_eq!(a.points,b.points);assert_eq!(a.filled,b.filled);assert_eq!(a.color,b.color);}
-  assert_eq!(heal[1].color,Some(egui::Color32::from_gray(136)));
-  assert_eq!(heal[2].color,Some(egui::Color32::from_gray(51)));
+  assert_eq!(heal.len(),7);assert_eq!(remove.len(),9);
+  for (a,b) in heal.iter().zip(&remove){
+   assert_eq!(a.width,2.0);assert_eq!(a.points.len(),b.points.len());
+   for (a,b) in a.points.iter().zip(&b.points){assert!((a.x-b.x).abs()<0.001);assert!((b.y-a.y-2.0).abs()<0.001);}
+  }
+  assert_eq!(heal[6].points.first(),heal[6].points.last());
+  assert!(heal[6].points.len()>20);
+ }
+ #[test] fn svg_paths_handle_relative_commands_and_separate_subpaths(){
+  let paths=svg_line_paths("M2 3h4v5H2z M10 12.01h.01");
+  assert_eq!(paths.len(),2);
+  assert_eq!(paths[0],vec![Pos2::new(2.0,3.0),Pos2::new(6.0,3.0),Pos2::new(6.0,8.0),Pos2::new(2.0,8.0),Pos2::new(2.0,3.0)]);
+  assert!((paths[1][1].x-10.01).abs()<0.001);
+  assert!(svg_line_paths("M1 2 C3 4 5 6 7 8").is_empty());
  }
 }

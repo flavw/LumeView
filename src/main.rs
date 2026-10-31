@@ -822,7 +822,7 @@ impl App {
     fn view_rotation_menu(&mut self, ui: &mut egui::Ui) {
         ui.menu_button(t("Girar exibição"),|ui| {
             if item(ui,"Girar exibição 90° à direita","R") {self.rotate_view(Some(true));}
-            if item(ui,"Girar exibição 90° à esquerda","") {self.rotate_view(Some(false));}
+            if item(ui,"Girar exibição 90° à esquerda","L") {self.rotate_view(Some(false));}
             ui.add_enabled_ui(!self.view_rotation.is_default(),|ui| {
                 if item(ui,"Restaurar orientação da exibição","") {self.rotate_view(None);}
             });
@@ -1680,6 +1680,7 @@ impl App {
                     Key::P => self.dialog = Some(Dialog::Settings),
                     Key::C if !m.alt && !m.shift && !repeat => self.toggle_zoom_alignment(),
                     Key::R if !m.alt && !m.shift && !repeat && self.image.is_some() => self.rotate_view(Some(true)),
+                    Key::L if !m.alt && !m.shift && !repeat && self.image.is_some() => self.rotate_view(Some(false)),
                     Key::I => self.show_information(),
                     Key::E => self.export_dialog(Format::Jpeg),
                     Key::W => self.export_dialog(Format::Webp),
@@ -2981,7 +2982,7 @@ impl App {
                             ("M ou V / C / G / T","Pintura: selecionar e mover / recortar / balde de tinta / texto"),
                             ("U / Shift+U","Pintura: última forma / alternar entre formas"),
                             ("Shift+J","Pintura: alternar correção localizada / remover"),
-                            ("R","Girar exibição 90° à direita"),("F12","Painel de pintura"),("I","Informações da imagem"),("P","Preferências"),("C","Alternar zoom entre centro e canto superior esquerdo"),("E","Exportar JPEG"),("W","Exportar WebP"),("Q","Exportar PNG"),("Ctrl+P","Imprimir"),("Ctrl+O","Abrir imagem"),("Ctrl+S","Salvar imagem"),("Ctrl+A","Selecionar / desselecionar tudo"),
+                            ("R","Girar exibição 90° à direita"),("L","Girar exibição 90° à esquerda"),("F12","Painel de pintura"),("I","Informações da imagem"),("P","Preferências"),("C","Alternar zoom entre centro e canto superior esquerdo"),("E","Exportar JPEG"),("W","Exportar WebP"),("Q","Exportar PNG"),("Ctrl+P","Imprimir"),("Ctrl+O","Abrir imagem"),("Ctrl+S","Salvar imagem"),("Ctrl+A","Selecionar / desselecionar tudo"),
                             ("Ctrl+Y","Aplicar recorte selecionado"),("Ctrl+Shift+L","Iniciar recorte JPEG sem perdas"),("Ctrl + setas","Redimensionar seleção proporcionalmente"),
                             ("Shift + setas","Mover seleção em passos maiores"),("Alt + setas","Alterar largura / altura da seleção"),
                             ("Ctrl+Z / Ctrl+J","Desfazer / refazer edições"),("Ctrl+C / Ctrl+Insert","Copiar imagem ou seleção"),("Ctrl+V","Colar como nova imagem"),
