@@ -228,6 +228,7 @@ fn english(text: &str) -> String {
         ("Você poderá restaurar o arquivo pela lixeira.", "You can restore the file from the recycle bin."),
         ("Enter: confirmar opção · Tab: alternar · Esc: cancelar", "Enter: confirm choice · Tab: switch · Esc: cancel"),
         ("Copiar tudo", "Copy all"), ("Metadados copiados.", "Metadata copied."),
+        ("Parâmetros de IA", "AI Parameters"),
         ("Geração por IA · parameters", "AI generation · parameters"),
         ("Geração por IA · prompt", "AI generation · prompt"),
         ("Geração por IA · workflow", "AI generation · workflow"),

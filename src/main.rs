@@ -16,6 +16,7 @@ mod remove;
 mod i18n;
 mod icons;
 mod image_details;
+mod information_panel;
 mod loader;
 mod model;
 mod panorama;
@@ -2669,8 +2670,11 @@ impl App {
         };
         let artwork=art_kind.map(|(kind,width)|(self.dialog_art.texture(ctx,kind),width));
         let shortcuts_art=matches!(dialog,Dialog::Help).then(||self.dialog_art.texture(ctx,dialog_art::Kind::Shortcuts));
+        let information_width=(ctx.screen_rect().width()-64.0).clamp(120.0,760.0);
+        let information_height=(ctx.screen_rect().height()-220.0).clamp(80.0,480.0);
         egui::Window::new(t(title)).title_bar(false).frame(egui::Frame::window(&ctx.style()).inner_margin(16.0).corner_radius(8)).collapsible(false).resizable(matches!(dialog,Dialog::Help|Dialog::Search(_))).anchor(egui::Align2::CENTER_CENTER,Vec2::ZERO).show(ctx,|ui|{
-            ui.set_max_width(artwork.as_ref().map(|(_,width)|*width+dialog_art::DISPLAY_SIZE+16.0).unwrap_or(650.0));
+            ui.set_max_width(artwork.as_ref().map(|(_,width)|*width+dialog_art::DISPLAY_SIZE+16.0).unwrap_or(if matches!(dialog,Dialog::Information){information_width}else{650.0}));
+            if matches!(dialog,Dialog::Information){ui.set_width(information_width);}
             ui.spacing_mut().item_spacing=Vec2::new(10.0,10.0);
             ui.spacing_mut().button_padding=Vec2::new(14.0,7.0);
             ui.add_space(6.0);
@@ -2828,23 +2832,14 @@ impl App {
                     ui.small(t("Enter: confirmar opção · Tab: alternar · Esc: cancelar"));
                 },
                 Dialog::Information=>{
-                    ui.set_width(600.0);
+                    ui.set_width(information_width);
                     if ui.button(t("Copiar tudo")).clicked(){
                         let text=self.image_info.iter().map(|(key,value)|format!("{}:\n{}",t(key),value)).collect::<Vec<_>>().join("\n\n");
                         match arboard::Clipboard::new().and_then(|mut clipboard|clipboard.set_text(text)){Ok(())=>self.toast(t("Metadados copiados.")),Err(e)=>self.fail(e.to_string())}
                     }
                     ui.separator();
-                    egui::ScrollArea::vertical().max_height(420.0).show(ui,|ui|{
-                        let mut copied=None;
-                        egui::Grid::new("image_info").striped(true).show(ui,|ui|{
-                            for(key,value)in &self.image_info{
-                                ui.horizontal(|ui|{
-                                    if (key.starts_with("Geração por IA")||key=="EXIF · UserComment")&&icons::tool_button(ui,"Copiar",true){copied=Some(value.clone());}
-                                    ui.add_sized([110.0,0.0],egui::Label::new(t(key)).wrap());
-                                });
-                                ui.add_sized([440.0,0.0],egui::Label::new(value).wrap().selectable(true));ui.end_row();
-                            }
-                        });
+                    egui::ScrollArea::vertical().max_height(information_height).auto_shrink([false,true]).show(ui,|ui|{
+                        let copied=information_panel::show(ui,&self.image_info);
                         if let Some(text)=copied{match arboard::Clipboard::new().and_then(|mut clipboard|clipboard.set_text(text)){Ok(())=>self.toast(t("Conteúdo de IA copiado.")),Err(e)=>self.fail(e.to_string())}}
 
                     });
