@@ -120,7 +120,7 @@ pub fn tool_button(ui: &mut egui::Ui, label: &str, enabled: bool) -> bool {
                 ]);
                 line(&[(1., 9.), (17., 9.)]);
             }
-            "Salvar" => {
+            "Salvar" | "Salvar WebP com parâmetros de IA (80%)" => {
                 rect(2., 2., 16., 16.);
                 rect(6., 2., 8., 6.);
                 rect(6., 11., 8., 7.);

@@ -10,7 +10,7 @@ LumeView is available for **64-bit Windows**. Choose one of these installation o
 
 - **Microsoft Store:** [Install LumeView from the Microsoft Store](https://apps.microsoft.com/detail/9n0wr4v1nxkf).
 - **EXE installer:** Open the [latest GitHub release](https://github.com/flavw/LumeView/releases/latest), download **LumeView-Setup.exe**, and run it. The installer creates a Start menu shortcut and registers LumeView in **Open with**; your default apps are not changed.
-- **Manual ZIP:** Open the [latest GitHub release](https://github.com/flavw/LumeView/releases/latest), download **LumeView-0.38.3-Windows-x64.zip**, extract it, and run **LumeView/lumeview.exe**. Keep the `tools` folder beside the executable. No automatic installer or registry changes are performed; file associations are configured manually.
+- **Manual ZIP:** Open the [latest GitHub release](https://github.com/flavw/LumeView/releases/latest), download **LumeView-0.38.4-Windows-x64.zip**, extract it, and run **LumeView/lumeview.exe**. Keep the `tools` folder beside the executable. No automatic installer or registry changes are performed; file associations are configured manually.
 
 See the [manual installation instructions](docs/manual-installation.md).
 
@@ -22,10 +22,12 @@ See the [manual installation instructions](docs/manual-installation.md).
 - Basic editing in Paint dialog: brush, fill, clone stamp, spot healing, Remove, shapes, arrows and floating text, with undo/redo.
 - Image effects and adjustments, including black and white, sepia, brightness, contrast and saturation.
 - Batch resizing, conversion and renaming; horizontal or vertical panorama creation.
-- AI generation metadata inspection, clipboard images and JPEG/PNG/WebP export.
+- AI generation metadata inspection and preservation in WebP EXIF, clipboard images and JPEG/PNG/WebP export.
 - Customizable shortcuts, dark/light/neon themes, and English, Portuguese, Spanish and French interfaces.
 
 ![LumeView Paint dialog](docs/screenshot-paint.jpg)
+
+The floppy-disk button beside AI metadata copies the current image to WebP at 80% quality with its generation text in EXIF UserComment. Batch conversion also offers an optional **Preserve AI parameters in WebP (EXIF)** checkbox and uses the selected batch quality (80% by default). Large prompts and workflows are kept as Unicode text; automatic workflow import by other apps depends on their metadata support.
 
 ## Quick controls
 

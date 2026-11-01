@@ -1,14 +1,44 @@
 {
-  "AI Parameters": ["Parámetros de IA", "Paramètres IA"],
-  "Color": ["Color", "Couleur"],
-  "Copy hexadecimal color code": ["Copiar código de color hexadecimal", "Copier le code couleur hexadécimal"],
-  "Remove": ["Eliminar", "Supprimer"],
-  "Paint: cycle spot healing / remove": ["Pintura: alternar corrección puntual / eliminar", "Peinture : alterner correcteur localisé / supprimer"],
-  "Use the Remove tool on a smaller area.": ["Usa la herramienta Eliminar en un área más pequeña.", "Utilisez l’outil Supprimer sur une zone plus petite."],
-  "Mark a smaller area and leave background pixels around it.": ["Marca un área más pequeña y deja píxeles del fondo alrededor.", "Marquez une zone plus petite et laissez des pixels du fond autour."],
-  "Crop": ["Recortar", "Recadrer"],
-  "Aspect ratio": ["Proporción", "Rapport largeur/hauteur"],
-  "Soft shadow": ["Sombra suave", "Ombre douce"],
+  "AI Parameters": [
+    "Parámetros de IA",
+    "Paramètres IA"
+  ],
+  "Color": [
+    "Color",
+    "Couleur"
+  ],
+  "Copy hexadecimal color code": [
+    "Copiar código de color hexadecimal",
+    "Copier le code couleur hexadécimal"
+  ],
+  "Remove": [
+    "Eliminar",
+    "Supprimer"
+  ],
+  "Paint: cycle spot healing / remove": [
+    "Pintura: alternar corrección puntual / eliminar",
+    "Peinture : alterner correcteur localisé / supprimer"
+  ],
+  "Use the Remove tool on a smaller area.": [
+    "Usa la herramienta Eliminar en un área más pequeña.",
+    "Utilisez l’outil Supprimer sur une zone plus petite."
+  ],
+  "Mark a smaller area and leave background pixels around it.": [
+    "Marca un área más pequeña y deja píxeles del fondo alrededor.",
+    "Marquez une zone plus petite et laissez des pixels du fond autour."
+  ],
+  "Crop": [
+    "Recortar",
+    "Recadrer"
+  ],
+  "Aspect ratio": [
+    "Proporción",
+    "Rapport largeur/hauteur"
+  ],
+  "Soft shadow": [
+    "Sombra suave",
+    "Ombre douce"
+  ],
   "Paint: brush / hand / spot healing / clone stamp / eyedropper": [
     "Pintura: pincel / mano / corrección puntual / tampón de clonar / cuentagotas",
     "Peinture : pinceau / main / correcteur localisé / tampon de duplication / pipette"
@@ -1472,5 +1502,13 @@
   "Fill": [
     "Relleno",
     "Remplissage"
+  ],
+  "Save WebP with AI parameters (80%)": [
+    "Guardar WebP con parámetros de IA (80%)",
+    "Enregistrer WebP avec paramètres IA (80%)"
+  ],
+  "Preserve AI parameters in WebP (EXIF)": [
+    "Conservar parámetros de IA en WebP (EXIF)",
+    "Conserver les paramètres IA dans WebP (EXIF)"
   ]
 }

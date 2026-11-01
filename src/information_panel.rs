@@ -12,8 +12,10 @@ fn value_field(ui: &mut egui::Ui,value: &str) -> egui::text_edit::TextEditOutput
         .show(ui)
 }
 
-pub fn show(ui: &mut egui::Ui,rows: &[(String,String)]) -> Option<String> {
-    let mut copied=None;
+pub enum Action {Copy(String), SaveAiWebp}
+
+pub fn show(ui: &mut egui::Ui,rows: &[(String,String)],busy: bool) -> Option<Action> {
+    let mut action=None;
     for (key,value) in rows {
         let copyable=key.starts_with("Geração por IA") || key=="EXIF · UserComment";
         if copyable || value.contains('\n') || value.len()>160 {
@@ -24,7 +26,11 @@ pub fn show(ui: &mut egui::Ui,rows: &[(String,String)]) -> Option<String> {
                 if copyable && ui.scope(|ui| {
                     ui.spacing_mut().interact_size.y=30.0;
                     icons::tool_button(ui,"Copiar",true)
-                }).inner {copied=Some(value.clone());}
+                }).inner {action=Some(Action::Copy(value.clone()));}
+                if copyable && !value.trim().is_empty() && ui.scope(|ui| {
+                    ui.spacing_mut().interact_size.y=30.0;
+                    icons::tool_button(ui,"Salvar WebP com parâmetros de IA (80%)",!busy)
+                }).inner {action=Some(Action::SaveAiWebp);}
             });
             ui.push_id(key,|ui|{value_field(ui,value);});
         } else {
@@ -36,7 +42,7 @@ pub fn show(ui: &mut egui::Ui,rows: &[(String,String)]) -> Option<String> {
             });
         }
     }
-    copied
+    action
 }
 
 #[cfg(test)]

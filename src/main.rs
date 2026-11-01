@@ -17,6 +17,7 @@ mod i18n;
 mod icons;
 mod image_details;
 mod information_panel;
+mod ai_webp;
 mod loader;
 mod model;
 mod panorama;
@@ -186,6 +187,7 @@ enum Dialog {
         digits: String,
         start: String,
         convert: bool,
+        preserve_ai: bool,
     },
 }
 enum Message {
@@ -1047,6 +1049,21 @@ impl App {
             ctx.request_repaint();
         });
     }
+    fn export_ai_webp(&mut self) {
+        if self.busy {return;}
+        let Some(pixels)=self.image.clone() else {return;};
+        let Some(prompt)=ai_webp::prompt(&self.image_info) else {return;};
+        let source=self.source_path();
+        let stem=source.as_deref().and_then(|p|p.file_stem()).unwrap_or_default().to_string_lossy();
+        let mut dialog=rfd::FileDialog::new().set_title(t("Salvar WebP com parâmetros de IA (80%)")).set_file_name(format!("{stem}-ai.webp")).add_filter("WebP", &["webp"]);
+        if let Some(parent)=source.as_deref().and_then(|p|p.parent()) {dialog=dialog.set_directory(parent);}
+        let Some(path)=dialog.save_file() else {return;};
+        let tx=self.tx.clone();let context=self.loader.context();self.busy=true;
+        std::thread::spawn(move || {
+            let result=ai_webp::export(&pixels,&path,&prompt,80,true);
+            let _=tx.send(Message::Export(result));context.request_repaint();
+        });
+    }
     fn save_original(&mut self) {
         if self.image.is_none() || self.busy {
             return;
@@ -1370,7 +1387,7 @@ impl App {
             Err(e) => self.fail(e),
         }
     }
-    fn start_batch(&mut self, files: Vec<PathBuf>, dest: PathBuf, format: Format, quality: u8, resize: Option<batch::Resize>, naming: Option<batch::Naming>, convert: bool) {
+    fn start_batch(&mut self, files: Vec<PathBuf>, dest: PathBuf, format: Format, quality: u8, resize: Option<batch::Resize>, naming: Option<batch::Naming>, convert: bool, preserve_ai: bool) {
         if files.is_empty() {
             return;
         }
@@ -1408,7 +1425,7 @@ impl App {
                     }
                     let im=backend::load(p)?;
                     let resized=resize.map(|r|batch::resized(&im.pixels,r)).transpose()?;
-                    if convert {backend::export_new(resized.as_ref().unwrap_or(&im.pixels),&target,format,quality)}
+                    if convert {batch::export_converted(resized.as_ref().unwrap_or(&im.pixels),p,&target,format,quality,preserve_ai)}
                     else {batch::export_resized_original(resized.as_ref().unwrap_or(&im.pixels),p,&target,quality)}
                 })();
                 if let Err(e) = r {
@@ -1883,6 +1900,7 @@ impl App {
                                         digits: "3".into(),
                                         start: "1".into(),
                                         convert: true,
+                                        preserve_ai: false,
                                     });
                                 }
                                 ui.separator();
@@ -2839,8 +2857,11 @@ impl App {
                     }
                     ui.separator();
                     egui::ScrollArea::vertical().max_height(information_height).auto_shrink([false,true]).show(ui,|ui|{
-                        let copied=information_panel::show(ui,&self.image_info);
-                        if let Some(text)=copied{match arboard::Clipboard::new().and_then(|mut clipboard|clipboard.set_text(text)){Ok(())=>self.toast(t("Conteúdo de IA copiado.")),Err(e)=>self.fail(e.to_string())}}
+                        match information_panel::show(ui,&self.image_info,self.busy) {
+                            Some(information_panel::Action::Copy(text))=>{match arboard::Clipboard::new().and_then(|mut clipboard|clipboard.set_text(text)){Ok(())=>self.toast(t("Conteúdo de IA copiado.")),Err(e)=>self.fail(e.to_string())}},
+                            Some(information_panel::Action::SaveAiWebp)=>self.export_ai_webp(),
+                            None=>{},
+                        }
 
                     });
                 },
@@ -3046,7 +3067,7 @@ impl App {
                         keep = false;
                     }
                 },
-                Dialog::Batch{files,dest,format,quality,resize,width,height,proportional,percentage,percent,rename,name,digits,start,convert}=>{
+                Dialog::Batch{files,dest,format,quality,resize,width,height,proportional,percentage,percent,rename,name,digits,start,convert,preserve_ai}=>{
                     ui.set_width(620.0);
                     egui::ScrollArea::vertical().max_height(500.0).show(ui,|ui| {
                     ui.label(format!("{} {}",files.len(),t("imagens selecionadas")));
@@ -3059,6 +3080,7 @@ impl App {
                         ui.horizontal(|ui|{ui.radio_value(format,Format::Jpeg,"JPEG");ui.radio_value(format,Format::Webp,"WebP");ui.radio_value(format,Format::Png,"PNG");});
                     }
                     ui.add(egui::Slider::new(quality,1..=100).text(t("Qualidade")));
+                    ui.add_enabled(*convert && *format==Format::Webp,egui::Checkbox::new(preserve_ai,t("Preservar parâmetros de IA no WebP (EXIF)")));
                     ui.checkbox(resize,t("Redimensionar em lote"));
                         if *resize {
                             ui.horizontal(|ui| {ui.radio_value(percentage,false,t("Pixels"));ui.radio_value(percentage,true,t("Porcentagem"));});
@@ -3085,7 +3107,7 @@ impl App {
                         ui.label(naming.filename(0,&extension).unwrap_or_default());
                     }
                     let valid=!files.is_empty() && (*convert || *resize || *rename) && (!(*convert || *resize) || dest.is_dir()) && (!*rename || naming.is_some()) && (!*resize || resize_option.is_some());
-                    if ui.add_enabled(valid,egui::Button::new(t("Executar lote"))).clicked(){self.start_batch(files.clone(),dest.clone(),*format,*quality,if *resize {resize_option}else{None},if *rename {naming}else{None},*convert);keep=false;}
+                    if ui.add_enabled(valid,egui::Button::new(t("Executar lote"))).clicked(){self.start_batch(files.clone(),dest.clone(),*format,*quality,if *resize {resize_option}else{None},if *rename {naming}else{None},*convert,*preserve_ai);keep=false;}
                     });
 
                 },

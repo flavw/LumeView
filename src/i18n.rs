@@ -229,6 +229,8 @@ fn english(text: &str) -> String {
         ("Enter: confirmar opção · Tab: alternar · Esc: cancelar", "Enter: confirm choice · Tab: switch · Esc: cancel"),
         ("Copiar tudo", "Copy all"), ("Metadados copiados.", "Metadata copied."),
         ("Parâmetros de IA", "AI Parameters"),
+        ("Salvar WebP com parâmetros de IA (80%)", "Save WebP with AI parameters (80%)"),
+        ("Preservar parâmetros de IA no WebP (EXIF)", "Preserve AI parameters in WebP (EXIF)"),
         ("Geração por IA · parameters", "AI generation · parameters"),
         ("Geração por IA · prompt", "AI generation · prompt"),
         ("Geração por IA · workflow", "AI generation · workflow"),
