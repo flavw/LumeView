@@ -10,7 +10,7 @@ LumeView is available for **64-bit Windows**. Choose one of these installation o
 
 - **Microsoft Store:** [Install LumeView from the Microsoft Store](https://apps.microsoft.com/detail/9n0wr4v1nxkf).
 - **EXE installer:** Open the [latest GitHub release](https://github.com/flavw/LumeView/releases/latest), download **LumeView-Setup.exe**, and run it. The installer creates a Start menu shortcut and registers LumeView in **Open with**; your default apps are not changed.
-- **Manual ZIP:** Open the [latest GitHub release](https://github.com/flavw/LumeView/releases/latest), download **LumeView-0.38.4-Windows-x64.zip**, extract it, and run **LumeView/lumeview.exe**. Keep the `tools` folder beside the executable. No automatic installer or registry changes are performed; file associations are configured manually.
+- **Manual ZIP:** Open the [latest GitHub release](https://github.com/flavw/LumeView/releases/latest), download **LumeView-0.38.5-Windows-x64.zip**, extract it, and run **LumeView/lumeview.exe**. Keep the `tools` folder beside the executable. No automatic installer or registry changes are performed; file associations are configured manually.
 
 See the [manual installation instructions](docs/manual-installation.md).
 
@@ -35,7 +35,7 @@ The floppy-disk button beside AI metadata copies the current image to WebP at 80
 | --- | --- |
 | Left / Right | Previous / next image |
 | Ctrl+O | Open an image |
-| Enter / F / left double-click | Toggle fullscreen |
+| Enter / F / left double-click | Toggle fullscreen; Enter applies an active crop |
 | 1–7 | Choose a zoom mode; retained while navigating |
 | Ctrl or Alt + mouse wheel | Zoom |
 | I | Image information and AI metadata |
@@ -48,8 +48,8 @@ The floppy-disk button beside AI metadata copies the current image to WebP at 80
 | Ctrl+S | Save dialog |
 | Ctrl+P | Windows Print Pictures |
 | E / W / Q | Export JPEG / WebP / PNG |
-| Page Down / Page Up | Scroll down / up; press again at the boundary to change image |
-| Ctrl+Y | Apply the crop |
+| Page Down / Page Up | Scroll half the visible height down / up; press again at the boundary to change image |
+| Enter / Ctrl+Y | Apply the crop |
 | Delete / Shift+Delete | Recycle / permanently delete, with confirmation |
 | F1 | All shortcuts |
 | F12 | Show / hide Paint dialog |
@@ -74,6 +74,8 @@ Tool shortcuts take priority over viewer shortcuts while Paint dialog is active.
 | Alt+right-drag | Adjust brush, clone stamp, spot healing or Remove size; vertical dragging changes hardness for Brush only |
 | Ctrl+Z / Ctrl+J | Undo / redo |
 | Ctrl+Enter / Esc | Apply / cancel floating text |
+
+Free cropping starts with the entire image selected. Hold Alt while dragging a crop edge or corner to resize around its center. The About dialog includes a link to the GitHub project.
 
 Hold Shift for horizontal/vertical brush strokes, 45° steps with line/arrow tools, and square/circular shapes. Mouse-wheel image navigation is disabled while Paint dialog is active.
 

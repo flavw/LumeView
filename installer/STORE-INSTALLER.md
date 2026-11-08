@@ -1,4 +1,4 @@
-# LumeView installer 0.38.4
+# LumeView installer 0.38.5
 
 Microsoft Store EXE installer parameters: `/S`
 

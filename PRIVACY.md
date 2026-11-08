@@ -1,6 +1,6 @@
 # LumeView Privacy Policy
 
-Last updated: October 11, 2026
+Last updated: November 8, 2026
 
 LumeView is a desktop image viewer developed by flavw. This policy describes how LumeView handles information.
 
@@ -21,6 +21,10 @@ File changes, exports and deletions occur in response to your actions. Files sto
 When you use copy or paste, LumeView reads or writes images or metadata through the system clipboard. Clipboard synchronization or clipboard history, if enabled in your operating system, is controlled by the operating system.
 
 When you choose Print, LumeView provides an image to the Windows printing system. Printing and any transmission to a selected network printer or printing service are handled by Windows and your printer configuration.
+
+## External links
+
+The GitHub link in About opens the project page in your browser when you click it. LumeView does not automatically check for updates or contact GitHub when About is opened. Browsing GitHub is subject to GitHub's privacy policy.
 
 ## Third-party services
 

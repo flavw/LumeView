@@ -894,9 +894,9 @@ impl App {
         self.selection = Some(Crop::centered(w, h, self.ratio));
         self.align_selection();
         self.toast(if lossless {
-            "Recorte JPEG sem perdas: Ctrl+Y salva uma cópia na mesma pasta; Esc cancela."
+            "Recorte JPEG sem perdas: Enter ou Ctrl+Y salva uma cópia na mesma pasta; Esc cancela."
         } else {
-            "Recorte: Ctrl+Y aplica em memória; Esc cancela."
+            "Recorte: Enter ou Ctrl+Y aplica em memória; Esc cancela."
         });
     }
     fn align_selection(&mut self) {
@@ -1549,7 +1549,13 @@ impl App {
                 }
                 continue;
             }
-            if key == Key::Enter || (key == Key::F && !m.ctrl && !m.alt && !m.command) {
+            if key == Key::Enter {
+                if self.selection.is_some() {
+                    if !repeat && !self.busy && self.loading.is_none() {self.apply_crop(ctx);}
+                } else if !repeat {self.toggle_fullscreen(ctx);}
+                continue;
+            }
+            if key == Key::F && !m.ctrl && !m.alt && !m.command {
                 self.toggle_fullscreen(ctx);
                 continue;
             }
@@ -1797,7 +1803,7 @@ impl App {
         let (w,h)=self.view_dimensions();
         let (_,sy)=model::display_scale(self.fit,(w,h),(self.canvas.width(),self.canvas.height()),self.zoom,self.pixel_ratio);
         let limit=((h as f32*sy-self.canvas.height())/2.0).max(0.0);
-        let (pan,next)=model::page_step(self.pan.y,limit,direction,repeat);
+        let (pan,next)=model::page_step(self.pan.y,limit,self.canvas.height(),direction,repeat);
         self.pan.y=pan;
         if next {self.navigate(direction as isize);}
     }
@@ -1973,7 +1979,7 @@ impl App {
                                         self.crop_choices(ui, true);
                                     });
                                 });
-                                if item(ui, "Aplicar recorte", "Ctrl+Y") {
+                                if item(ui, "Aplicar recorte", "Enter / Ctrl+Y") {
                                     self.apply_crop(ctx);
                                 }
                                 if item(ui, "Inverter proporção", "") {
@@ -2516,6 +2522,7 @@ impl App {
                         let dx=((p.x-start.x)/sx).round()as i64;let dy=((p.y-start.y)/sy).round()as i64;
                         let mut c=original;
                         if kind==1{c.x=(original.x as i64+dx).clamp(0,(w-c.w)as i64)as u32;c.y=(original.y as i64+dy).clamp(0,(h-c.h)as i64)as u32;}
+                        else if (2..=9).contains(&kind) && ctx.input(|i|i.modifiers.alt) {c=original.resize_centered(kind,dx,dy,w,h,view_ratio);}
                         else if kind>=6 {c=original.resize_side(kind,if kind==6||kind==7{dx}else{dy},w,h,view_ratio);}
                         else {
                             let anchor=if kind>=2{match kind{2=>(original.x+original.w,original.y+original.h),3=>(original.x,original.y+original.h),4=>(original.x+original.w,original.y),_=>(original.x,original.y)}}else{(((start.x-shown.min.x)/sx).clamp(0.0,w as f32)as u32,((start.y-shown.min.y)/sy).clamp(0.0,h as f32)as u32)};
@@ -2574,7 +2581,7 @@ impl App {
                     });
                     }
                     if item(ui,"Inverter proporção",""){self.invert_crop_ratio();}
-                    if item(ui,"Aplicar recorte","Ctrl+Y"){self.apply_crop(ctx);}
+                    if item(ui,"Aplicar recorte","Enter / Ctrl+Y"){self.apply_crop(ctx);}
                     if item(ui,"Copiar","Ctrl+C"){self.clipboard_copy();}
                     ui.separator();
                     self.view_rotation_menu(ui);
@@ -2975,7 +2982,11 @@ impl App {
                 },
                 Dialog::About=>{
  ui.horizontal(|ui|{ui.image((self.logo.id(),Vec2::splat(96.0)));ui.vertical(|ui|{
- ui.heading("LumeView");ui.label(format!("{} · {} bits",env!("CARGO_PKG_VERSION"),usize::BITS));
+ ui.heading("LumeView");
+ ui.horizontal(|ui| {
+     ui.label(format!("{} · {} bits",env!("CARGO_PKG_VERSION"),usize::BITS));
+     ui.hyperlink_to("GitHub","https://github.com/flavw/LumeView");
+ });
  ui.label(t("Um visualizador de imagens simples e rápido."));
  ui.label(t("Este gatinho se chama Lume."));
  ui.label(t("Criado por flavw · CC0 1.0"));
@@ -2999,7 +3010,7 @@ impl App {
                             ("U / Shift+U","Pintura: última forma / alternar entre formas"),
                             ("Shift+J","Pintura: alternar correção localizada / remover"),
                             ("R","Girar exibição 90° à direita"),("L","Girar exibição 90° à esquerda"),("F12","Painel de pintura"),("I","Informações da imagem"),("P","Preferências"),("C","Alternar zoom entre centro e canto superior esquerdo"),("E","Exportar JPEG"),("W","Exportar WebP"),("Q","Exportar PNG"),("Ctrl+P","Imprimir"),("Ctrl+O","Abrir imagem"),("Ctrl+S","Salvar imagem"),("Ctrl+A","Selecionar / desselecionar tudo"),
-                            ("Ctrl+Y","Aplicar recorte selecionado"),("Ctrl+Shift+L","Iniciar recorte JPEG sem perdas"),("Ctrl + setas","Redimensionar seleção proporcionalmente"),
+                            ("Enter / Ctrl+Y","Aplicar recorte selecionado"),("Ctrl+Shift+L","Iniciar recorte JPEG sem perdas"),("Ctrl + setas","Redimensionar seleção proporcionalmente"),
                             ("Shift + setas","Mover seleção em passos maiores"),("Alt + setas","Alterar largura / altura da seleção"),
                             ("Ctrl+Z / Ctrl+J","Desfazer / refazer edições"),("Ctrl+C / Ctrl+Insert","Copiar imagem ou seleção"),("Ctrl+V","Colar como nova imagem"),
                             ("Alt + arrastar botão direito","Ajustar tamanho: pincel, carimbo e correção localizada; dureza: somente pincel"),

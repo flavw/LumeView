@@ -1,4 +1,5 @@
 {
+
   "AI Parameters": [
     "Parámetros de IA",
     "Paramètres IA"
@@ -575,13 +576,13 @@
     "Lote cancelado. Se conservaron los archivos completados.",
     "Traitement annulé. Les fichiers terminés ont été conservés."
   ],
-  "Selection: Ctrl+Y applies in memory; Esc cancels.": [
-    "Recorte: Ctrl+Y aplica en memoria; Esc cancela.",
-    "Recadrage : Ctrl+Y applique en mémoire ; Échap annule."
+  "Selection: Enter or Ctrl+Y applies in memory; Esc cancels.": [
+    "Recorte: Intro o Ctrl+Y aplica en memoria; Esc cancela.",
+    "Recadrage : Entrée ou Ctrl+Y applique en mémoire ; Échap annule."
   ],
-  "Lossless JPEG selection: Ctrl+Y saves a copy in the same folder; Esc cancels.": [
-    "Recorte JPEG sin pérdidas: Ctrl+Y guarda una copia en la misma carpeta; Esc cancela.",
-    "Recadrage JPEG sans perte : Ctrl+Y enregistre une copie dans le même dossier ; Échap annule."
+  "Lossless JPEG selection: Enter or Ctrl+Y saves a copy in the same folder; Esc cancels.": [
+    "Recorte JPEG sin pérdidas: Intro o Ctrl+Y guarda una copia en la misma carpeta; Esc cancela.",
+    "Recadrage JPEG sans perte : Entrée ou Ctrl+Y enregistre une copie dans le même dossier ; Échap annule."
   ],
   "Lossless JPEG selections require normal EXIF orientation (1). Use a regular selection.": [
     "El recorte JPEG sin pérdidas requiere orientación EXIF normal (1). Usa el recorte normal.",

@@ -10,6 +10,38 @@ pub struct Crop {
 }
 
 impl Crop {
+    /// Alt-drag: resize opposing edges around the original center, in image pixels.
+    pub fn resize_centered(self, handle: u8, dx: i64, dy: i64, iw: u32, ih: u32, ratio: Option<f32>) -> Self {
+        let c=self.bounded(iw,ih);
+        let cx=2*u64::from(c.x)+u64::from(c.w);
+        let cy=2*u64::from(c.y)+u64::from(c.h);
+        let maxw=cx.min(2*u64::from(iw)-cx) as u32;
+        let maxh=cy.min(2*u64::from(ih)-cy) as u32;
+        let horizontal=matches!(handle,2..=7);
+        let vertical=matches!(handle,2..=5|8|9);
+        let left=matches!(handle,2|4|6);
+        let top=matches!(handle,2|3|8);
+        let mut w=if horizontal {(c.w as f64+2.0*dx as f64*if left {-1.0}else{1.0}).max(1.0)}else{c.w as f64};
+        let mut h=if vertical {(c.h as f64+2.0*dy as f64*if top {-1.0}else{1.0}).max(1.0)}else{c.h as f64};
+        if let Some(r)=ratio.filter(|r|r.is_finite() && *r>0.0) {
+            let r=f64::from(r);
+            if !vertical {h=w/r;}
+            else if !horizontal || w/h>r {w=h*r;}
+            else {h=w/r;}
+            let scale=(maxw as f64/w).min(maxh as f64/h).min(1.0);
+            w*=scale;h*=scale;
+        }
+        // Keep the original odd/even dimensions so integer coordinates preserve
+        // the center exactly, including selections centered on half a pixel.
+        let snap=|value: f64, original: u32, maximum: u32| {
+            let parity=original%2;
+            let minimum=if parity==0 {2}else{1};
+            (((value-parity as f64)/2.0).round()*2.0+parity as f64)
+                .clamp(minimum as f64,maximum as f64) as u32
+        };
+        let w=snap(w,c.w,maxw);let h=snap(h,c.h,maxh);
+        Self{x:((cx-u64::from(w))/2) as u32,y:((cy-u64::from(h))/2) as u32,w,h}
+    }
     pub fn resize_side(self, side: u8, delta: i64, iw: u32, ih: u32, ratio: Option<f32>) -> Self {
         let mut c = self;
         let horizontal = side == 6 || side == 7;
@@ -82,7 +114,7 @@ impl Crop {
                 (w, (w as f32 / r).round() as u32)
             }
         } else {
-            (w * 3 / 4, h * 3 / 4)
+            (w, h)
         };
         Self {
             x: (w - cw.min(w)) / 2,
@@ -198,13 +230,13 @@ pub fn supported(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-/// Scroll like the vertical arrows; a fresh press at the boundary changes page.
-pub fn page_step(pan: f32, limit: f32, direction: i32, repeat: bool) -> (f32,bool) {
+/// Scroll half the visible canvas height; a fresh press at the boundary changes page.
+pub fn page_step(pan: f32, limit: f32, viewport_height: f32, direction: i32, repeat: bool) -> (f32,bool) {
     let limit=limit.max(0.0);
     let pan=pan.clamp(-limit,limit);
     let at_edge=if direction>0 {pan<=-limit+0.01}else{pan>=limit-0.01};
     if at_edge {return (pan,!repeat);}
-    ((pan-direction as f32*40.0).clamp(-limit,limit),false)
+    ((pan-direction as f32*(viewport_height.max(0.0)*0.5)).clamp(-limit,limit),false)
 }
 
 #[cfg(test)]
@@ -212,12 +244,14 @@ mod page_tests {
     use super::*;
     #[test]
     fn reaching_edge_requires_another_press() {
-        assert_eq!(page_step(0.0,30.0,1,false),(-30.0,false));
-        assert_eq!(page_step(-30.0,30.0,1,true),(-30.0,false));
-        assert_eq!(page_step(-30.0,30.0,1,false),(-30.0,true));
-        assert_eq!(page_step(0.0,30.0,-1,false),(30.0,false));
-        assert_eq!(page_step(30.0,30.0,-1,false),(30.0,true));
-        assert_eq!(page_step(0.0,0.0,1,false),(0.0,true));
+        assert_eq!(page_step(0.0,30.0,100.0,1,false),(-30.0,false));
+        assert_eq!(page_step(-30.0,30.0,100.0,1,true),(-30.0,false));
+        assert_eq!(page_step(-30.0,30.0,100.0,1,false),(-30.0,true));
+        assert_eq!(page_step(0.0,30.0,100.0,-1,false),(30.0,false));
+        assert_eq!(page_step(30.0,30.0,100.0,-1,false),(30.0,true));
+        assert_eq!(page_step(0.0,0.0,100.0,1,false),(0.0,true));
+        assert_eq!(page_step(0.0,1000.0,600.0,1,false),(-300.0,false));
+        assert_eq!(page_step(0.0,1000.0,1200.0,-1,false),(600.0,false));
     }
 }
 
@@ -302,6 +336,29 @@ mod tests {
         assert!(!shift_delete_cut(false, true, false));
         assert!(!shift_delete_cut(true, true, false));
         assert!(!shift_delete_cut(true, false, true));
+    }
+    #[test]
+    fn alt_resize_keeps_center_and_bounds_for_every_handle() {
+        for c in [Crop{x:100,y:80,w:200,h:100},Crop{x:13,y:17,w:101,h:77}] {
+            for handle in 2..=9 {
+                for (dx,dy) in [(-1000,-1000),(-25,15),(25,-15),(1000,1000)] {
+                    for ratio in [None,Some(2.0),Some(9.0/16.0)] {
+                        let out=c.resize_centered(handle,dx,dy,600,400,ratio);
+                        assert_eq!(2*out.x+out.w,2*c.x+c.w);
+                        assert_eq!(2*out.y+out.h,2*c.y+c.h);
+                        assert!(out.w>0 && out.h>0 && out.x+out.w<=600 && out.y+out.h<=400);
+                        if let Some(r)=ratio {
+                            // Pixel rounding can differ by one pixel on each axis.
+                            assert!((out.w as f32-out.h as f32*r).abs()<=1.0+r);
+                        }
+                    }
+                }
+            }
+        }
+        let c=Crop{x:100,y:100,w:200,h:100};
+        assert_eq!(c.resize_centered(6,25,0,600,400,None),Crop{x:125,y:100,w:150,h:100});
+        assert_eq!(c.resize_centered(5,25,15,600,400,None),Crop{x:75,y:85,w:250,h:130});
+        assert_eq!(Crop::centered(1921,1081,None),Crop{x:0,y:0,w:1921,h:1081});
     }
     #[test]
     fn side_handles_resize_free_and_preserve_ratio() {
