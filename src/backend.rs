@@ -199,6 +199,7 @@ pub enum Format {
     Jpeg,
     Webp,
     Png,
+    Jxl,
 }
 impl Format {
     pub fn ext(self) -> &'static str {
@@ -206,14 +207,26 @@ impl Format {
             Self::Jpeg => "jpg",
             Self::Webp => "webp",
             Self::Png => "png",
+            Self::Jxl => "jxl",
         }
     }
     pub fn coder(self) -> &'static str {
         match self {
             Self::Jpeg => "jpeg",
-            Self::Webp => "webp",
-            Self::Png => "png",
+            other => other.ext(),
         }
+    }
+}
+
+pub(crate) const DEFAULT_JXL_QUALITY: u8 = 90;
+
+pub(crate) fn encoding_options(command: &mut Command, format: &str, quality: u8) {
+    command.args(["-strip", "-quality", &quality.to_string()]);
+    if format.eq_ignore_ascii_case("jxl") {
+        command.args(["-define", "jxl:effort=7"]);
+    }
+    if format.eq_ignore_ascii_case("webp") && quality == 100 {
+        command.args(["-define", "webp:lossless=true", "-define", "webp:exact=true"]);
     }
 }
 
@@ -248,7 +261,7 @@ fn export_impl(
     if format == Format::Jpeg {
         c.args(["-background", "white", "-alpha", "remove", "-alpha", "off"]);
     }
-    c.args(["-strip", "-quality", &quality.to_string()]);
+    encoding_options(&mut c, format.coder(), quality);
     if format == Format::Webp {
         c.args(["-define", "webp:method=6"]);
     }
@@ -512,6 +525,35 @@ pub fn save_lossless_crop(path: &Path, crop: Crop) -> Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn lossless_webp_and_jpeg_xl_preserve_exported_rgba() {
+        let dir = tempfile::tempdir().unwrap();
+        let pixels = RgbaImage::from_fn(24, 16, |x, y| {
+            image::Rgba([(x * 9) as u8, (y * 13) as u8, (x ^ y) as u8, (x * 11) as u8])
+        });
+        for format in [Format::Webp, Format::Jxl] {
+            let path = dir.path().join(format!("lossless.{}", format.ext()));
+            export_new(&pixels, &path, format, 100).unwrap();
+            assert_eq!(&*load(&path).unwrap().pixels, &pixels, "{format:?}");
+        }
+    }
+    #[test]
+    fn jpeg_xl_export_open_and_original_save_preserve_dimensions_and_alpha() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("image.jxl");
+        let pixels = RgbaImage::from_pixel(24, 16, image::Rgba([40, 60, 80, 128]));
+        export_new(&pixels, &path, Format::Jxl, 50).unwrap();
+        assert_eq!(crate::model::folder_files(&path), vec![path.clone()]);
+        let decoded = load(&path).unwrap().pixels;
+        assert_eq!(decoded.dimensions(), (24, 16));
+        assert_eq!(decoded.get_pixel(10, 10)[3], 128);
+
+        let edited = RgbaImage::from_pixel(12, 8, image::Rgba([80, 60, 40, 192]));
+        crate::image_details::save_original(&edited, &path, 50).unwrap();
+        let decoded = load(&path).unwrap().pixels;
+        assert_eq!(decoded.dimensions(), (12, 8));
+        assert_eq!(decoded.get_pixel(5, 5)[3], 192);
+    }
     #[test]
     fn svg_and_svgz_render_through_imagemagick() {
         let dir=tempfile::tempdir().unwrap();

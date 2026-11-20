@@ -97,7 +97,7 @@ pub fn save_original(pixels: &image::RgbaImage, path: &Path, quality: u8) -> bac
     if count != "1"
         || !matches!(
             coder,
-            "JPEG" | "PNG" | "WEBP" | "AVIF" | "HEIC" | "BMP" | "TIFF" | "GIF" | "ICO"
+            "JPEG" | "PNG" | "WEBP" | "AVIF" | "HEIC" | "BMP" | "TIFF" | "GIF" | "ICO" | "JXL"
         )
     {
         return Err("Formato original não disponível para salvar. Exporte uma cópia.".into());
@@ -116,8 +116,8 @@ pub fn save_original(pixels: &image::RgbaImage, path: &Path, quality: u8) -> bac
     if coder == "JPEG" {
         cmd.args(["-background", "white", "-alpha", "remove", "-alpha", "off"]);
     }
-    cmd.args(["-strip", "-quality", &quality.to_string()])
-        .arg(format!("{coder}:{}", temp.path().display()));
+    backend::encoding_options(&mut cmd, coder, quality);
+    cmd.arg(format!("{coder}:{}", temp.path().display()));
     let result = cmd.output().map_err(|e| e.to_string())?;
     if !result.status.success() {
         return Err(String::from_utf8_lossy(&result.stderr)

@@ -76,6 +76,9 @@ pub fn png_text(data: &[u8]) -> Vec<(String, String)> {
     rows
 }
 pub fn exif_from_image(data: &[u8]) -> Option<exif::Exif> {
+    if let Some(tiff) = crate::jxl_metadata::exif_tiff(data).filter(|tiff| tiff.len() <= 32 * 1024 * 1024 + 64) {
+        return exif::Reader::new().read_raw(tiff.to_vec()).ok();
+    }
     if let Ok(exif) = exif::Reader::new().read_from_container(&mut std::io::Cursor::new(data)) {
         return Some(exif);
     }

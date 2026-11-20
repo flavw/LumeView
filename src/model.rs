@@ -215,6 +215,7 @@ pub fn supported(path: &Path) -> bool {
                     | "jfif"
                     | "png"
                     | "webp"
+                    | "jxl"
                     | "avif"
                     | "gif"
                     | "bmp"

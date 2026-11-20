@@ -61,9 +61,9 @@ pub fn export_resized_original(pixels: &image::RgbaImage,source: &Path,target: &
 }
 /// Conversion never overwrites another file, including when preserving EXIF.
 pub fn export_converted(pixels: &image::RgbaImage,source: &Path,target: &Path,format: backend::Format,quality: u8,preserve_ai: bool) -> backend::Result<()> {
-    if preserve_ai && format==backend::Format::Webp {
+    if preserve_ai && matches!(format,backend::Format::Webp|backend::Format::Jxl) {
         if let Some(prompt)=crate::ai_webp::read_prompt(source)? {
-            return crate::ai_webp::export(pixels,target,&prompt,quality,false);
+            return crate::ai_webp::export(pixels,target,&prompt,format,quality,false);
         }
     }
     backend::export_new(pixels,target,format,quality)
@@ -73,7 +73,7 @@ mod tests {
     use super::*;
     use image::GenericImageView;
     #[test]
-    fn webp_batch_preserves_png_prompt_when_selected_and_never_overwrites() {
+    fn batch_preserves_png_prompt_when_selected_and_never_overwrites() {
         let dir=tempfile::tempdir().unwrap();
         let source=dir.path().join("source.png");
         let pixels=image::RgbaImage::from_pixel(32,24,image::Rgba([30,100,200,255]));
@@ -92,15 +92,20 @@ mod tests {
         std::fs::write(&source,&png).unwrap();
         assert_eq!(crate::ai_webp::read_prompt(&source).unwrap().unwrap(),text);
         let resized=resized(&backend::load(&source).unwrap().pixels,Resize::Percent(50.0)).unwrap();
-        let with=dir.path().join("with.webp");let without=dir.path().join("without.webp");
-        export_converted(&resized,&source,&with,backend::Format::Webp,80,true).unwrap();
-        export_converted(&resized,&source,&without,backend::Format::Webp,80,false).unwrap();
-        assert_eq!(image::open(&with).unwrap().dimensions(),(16,12));
-        assert_eq!(crate::ai_webp::read_prompt(&with).unwrap().unwrap(),text);
-        assert!(crate::ai_webp::read_prompt(&without).unwrap().is_none());
-        let saved=std::fs::read(&with).unwrap();
-        assert!(export_converted(&resized,&source,&with,backend::Format::Webp,80,true).is_err());
-        assert_eq!(std::fs::read(with).unwrap(),saved);
+        for format in [backend::Format::Webp, backend::Format::Jxl] {
+            let with=dir.path().join(format!("with.{}",format.ext()));
+            let without=dir.path().join(format!("without.{}",format.ext()));
+            export_converted(&resized,&source,&with,format,80,true).unwrap();
+            export_converted(&resized,&source,&without,format,80,false).unwrap();
+            let decoded=backend::load(&with).unwrap();
+            assert_eq!(decoded.pixels.dimensions(),(16,12));
+            assert_eq!(decoded.pixels,backend::load(&without).unwrap().pixels);
+            assert_eq!(crate::ai_webp::read_prompt(&with).unwrap().unwrap(),text);
+            assert!(crate::ai_webp::read_prompt(&without).unwrap().is_none());
+            let saved=std::fs::read(&with).unwrap();
+            assert!(export_converted(&resized,&source,&with,format,80,true).is_err());
+            assert_eq!(std::fs::read(with).unwrap(),saved);
+        }
         assert_eq!(std::fs::read(source).unwrap(),png);
     }
     #[test]

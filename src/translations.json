@@ -1,4 +1,17 @@
 {
+  "Use export quality": ["Usar calidad de exportación", "Utiliser la qualité d’exportation"],
+  "Lossless (WebP / JPEG XL)": ["Sin pérdida (WebP / JPEG XL)", "Sans perte (WebP / JPEG XL)"],
+  "Custom (type below)": ["Personalizada (escribe abajo)", "Personnalisée (saisir ci-dessous)"],
+  "Enter a quality from 1 to 100.": ["Introduce una calidad del 1 al 100.", "Saisissez une qualité de 1 à 100."],
+  "Lossless mode is available for WebP and JPEG XL.": ["El modo sin pérdida está disponible para WebP y JPEG XL.", "Le mode sans perte est disponible pour WebP et JPEG XL."],
+  "Lossless": ["Sin pérdida", "Sans perte"],
+  "Saving image": ["Guardando imagen", "Enregistrement de l’image"],
+  "The image is still being saved.": ["La imagen todavía se está guardando.", "L’image est en cours d’enregistrement."],
+  "Closing now may interrupt saving and leave a temporary file.": ["Cerrar ahora puede interrumpir el guardado y dejar un archivo temporal.", "Fermer maintenant peut interrompre l’enregistrement et laisser un fichier temporaire."],
+  "Wait": ["Esperar", "Attendre"],
+  "Close anyway": ["Cerrar de todos modos", "Fermer quand même"],
+  "The app will close when saving finishes.": ["El programa se cerrará cuando termine de guardar.", "L’application se fermera une fois l’enregistrement terminé."],
+
 
   "AI Parameters": [
     "Parámetros de IA",
@@ -1508,8 +1521,8 @@
     "Guardar WebP con parámetros de IA (80%)",
     "Enregistrer WebP avec paramètres IA (80%)"
   ],
-  "Preserve AI parameters in WebP (EXIF)": [
-    "Conservar parámetros de IA en WebP (EXIF)",
-    "Conserver les paramètres IA dans WebP (EXIF)"
+  "Preserve AI parameters (EXIF)": [
+    "Conservar parámetros de IA (EXIF)",
+    "Conserver les paramètres IA (EXIF)"
   ]
 }

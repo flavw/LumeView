@@ -1,4 +1,4 @@
-//! WebP export: PNG generation text -> Unicode EXIF UserComment.
+//! Export generation text as Unicode EXIF UserComment in WebP and JPEG XL.
 use std::{io::Write, path::Path};
 use crate::{backend::{self, Format}};
 
@@ -78,13 +78,18 @@ fn attach(data: &[u8],text: &str,width: u32,height: u32,alpha: bool) -> backend:
     Ok(out)
 }
 
-pub fn export(pixels: &image::RgbaImage,dest: &Path,text: &str,quality: u8,overwrite: bool) -> backend::Result<()> {
+pub fn export(pixels: &image::RgbaImage,dest: &Path,text: &str,format: Format,quality: u8,overwrite: bool) -> backend::Result<()> {
+    if text.len()>16*1024*1024 {return Err("AI metadata exceeds the 16 MiB limit".into());}
     // Both encoding and metadata assembly finish before replacing the destination.
     let parent=dest.parent().unwrap_or(Path::new("."));
-    let encoded=tempfile::Builder::new().suffix(".webp").tempfile_in(parent).map_err(|e|e.to_string())?.into_temp_path();
-    backend::export(pixels,&encoded,Format::Webp,quality)?;
+    let encoded=tempfile::Builder::new().suffix(&format!(".{}",format.ext())).tempfile_in(parent).map_err(|e|e.to_string())?.into_temp_path();
+    backend::export(pixels,&encoded,format,quality)?;
     let bytes=std::fs::read(&encoded).map_err(|e|e.to_string())?;
-    let bytes=attach(&bytes,text,pixels.width(),pixels.height(),pixels.pixels().any(|p|p[3]!=255))?;
+    let bytes=match format {
+        Format::Webp=>attach(&bytes,text,pixels.width(),pixels.height(),pixels.pixels().any(|p|p[3]!=255))?,
+        Format::Jxl=>crate::jxl_metadata::attach(&bytes,&exif(text))?,
+        _=>return Err("AI metadata export requires WebP or JPEG XL".into()),
+    };
     let mut output=tempfile::NamedTempFile::new_in(parent).map_err(|e|e.to_string())?;
     output.write_all(&bytes).map_err(|e|e.to_string())?;output.as_file().sync_all().map_err(|e|e.to_string())?;
     if overwrite {output.persist(dest).map_err(|e|e.to_string())?;}
@@ -121,13 +126,13 @@ mod tests {
     fn export_encodes_webp_and_keeps_existing_destination_on_failure() {
         let dir=tempfile::tempdir().unwrap();let path=dir.path().join("test.webp");
         let pixels=image::RgbaImage::from_pixel(32,32,image::Rgba([50,120,200,255]));
-        export(&pixels,&path,"Prompt: ação 🐱",80,false).unwrap();
+        export(&pixels,&path,"Prompt: ação 🐱",Format::Webp,80,false).unwrap();
         let bytes=std::fs::read(&path).unwrap();assert!(bytes.windows(4).any(|w|w==b"VP8 "));
         assert_eq!(image::load_from_memory(&bytes).unwrap().width(),32);
         assert!(crate::generation::exif_from_image(&bytes).is_some());
-        assert!(export(&pixels,&path,&"x".repeat(16*1024*1024+1),80,true).is_err());
+        assert!(export(&pixels,&path,&"x".repeat(16*1024*1024+1),Format::Webp,80,true).is_err());
         assert_eq!(std::fs::read(&path).unwrap(),bytes);
-        assert!(export(&pixels,&path,"replacement",80,false).is_err());
+        assert!(export(&pixels,&path,"replacement",Format::Webp,80,false).is_err());
         assert_eq!(std::fs::read(&path).unwrap(),bytes);
         assert_eq!(read_prompt(&path).unwrap().unwrap(),"Prompt: ação 🐱");
     }

@@ -10,7 +10,7 @@ LumeView is available for **64-bit Windows**. Choose one of these installation o
 
 - **Microsoft Store:** [Install LumeView from the Microsoft Store](https://apps.microsoft.com/detail/9n0wr4v1nxkf).
 - **EXE installer:** Open the [latest GitHub release](https://github.com/flavw/LumeView/releases/latest), download **LumeView-Setup.exe**, and run it. The installer creates a Start menu shortcut and registers LumeView in **Open with**; your default apps are not changed.
-- **Manual ZIP:** Open the [latest GitHub release](https://github.com/flavw/LumeView/releases/latest), download **LumeView-0.38.5-Windows-x64.zip**, extract it, and run **LumeView/lumeview.exe**. Keep the `tools` folder beside the executable. No automatic installer or registry changes are performed; file associations are configured manually.
+- **Manual ZIP:** Open the [latest GitHub release](https://github.com/flavw/LumeView/releases/latest), download **LumeView-0.38.6-Windows-x64.zip**, extract it, and run **LumeView/lumeview.exe**. Keep the `tools` folder beside the executable. No automatic installer or registry changes are performed; file associations are configured manually.
 
 See the [manual installation instructions](docs/manual-installation.md).
 
@@ -27,7 +27,7 @@ See the [manual installation instructions](docs/manual-installation.md).
 
 ![LumeView Paint dialog](docs/screenshot-paint.jpg)
 
-The floppy-disk button beside AI metadata copies the current image to WebP at 80% quality with its generation text in EXIF UserComment. Batch conversion also offers an optional **Preserve AI parameters in WebP (EXIF)** checkbox and uses the selected batch quality (80% by default). Large prompts and workflows are kept as Unicode text; automatic workflow import by other apps depends on their metadata support.
+The floppy-disk button beside AI metadata copies the current image to WebP at 80% quality with its generation text in EXIF UserComment. Batch conversion also offers an optional **Preserve AI parameters (EXIF)** checkbox for WebP and JPEG XL and uses the selected batch quality (80% by default). Large prompts and workflows are kept as Unicode text; automatic workflow import by other apps depends on their metadata support.
 
 ## Quick controls
 
@@ -47,7 +47,7 @@ The floppy-disk button beside AI metadata copies the current image to WebP at 80
 | F5 | Reload image and folder |
 | Ctrl+S | Save dialog |
 | Ctrl+P | Windows Print Pictures |
-| E / W / Q | Export JPEG / WebP / PNG |
+| Q / W / E / X | Export PNG / WebP / JPEG / JPEG XL |
 | Page Down / Page Up | Scroll half the visible height down / up; press again at the boundary to change image |
 | Enter / Ctrl+Y | Apply the crop |
 | Delete / Shift+Delete | Recycle / permanently delete, with confirmation |

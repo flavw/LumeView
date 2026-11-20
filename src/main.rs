@@ -18,6 +18,8 @@ mod icons;
 mod image_details;
 mod information_panel;
 mod ai_webp;
+mod jxl_metadata;
+mod save_guard;
 mod loader;
 mod model;
 mod panorama;
@@ -85,6 +87,7 @@ struct Settings {
     title_background_transparency: u8,
     jpeg_quality: u8,
     webp_quality: u8,
+    jxl_quality: u8,
     ratio: usize,
     slide_seconds: f32,
     show_toolbar: bool,
@@ -97,6 +100,26 @@ struct Settings {
     neon_color: [u8; 3],
     shortcuts: std::collections::BTreeMap<String,String>,
 }
+impl Settings {
+    fn export_quality(&self, format: Format) -> u8 {
+        match format {
+            Format::Jpeg => self.jpeg_quality,
+            Format::Webp => self.webp_quality,
+            Format::Jxl => self.jxl_quality,
+            Format::Png => 100,
+        }
+    }
+
+    fn set_export_quality(&mut self, format: Format, quality: u8) {
+        match format {
+            Format::Jpeg => self.jpeg_quality = quality,
+            Format::Webp => self.webp_quality = quality,
+            Format::Jxl => self.jxl_quality = quality,
+            Format::Png => {}
+        }
+    }
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -113,6 +136,7 @@ impl Default for Settings {
             title_background_transparency: 75,
             jpeg_quality: 80,
             webp_quality: 80,
+            jxl_quality: backend::DEFAULT_JXL_QUALITY,
             ratio: 3,
             slide_seconds: 4.0,
             show_toolbar: true,
@@ -139,6 +163,7 @@ enum PendingAction {
 }
 
 enum Dialog {
+    Saving { close_selected: bool },
     Effect(effects::Adjustment),
     GoTo(String,bool),
     Panorama { files: Vec<panorama::Input>, vertical: bool, gap: String, color: [u8;3] },
@@ -166,7 +191,7 @@ enum Dialog {
     SaveOriginal(PathBuf),
     SaveAs {
         format: Format,
-        quality: u8,
+        quality: String,
     },
     Dependencies,
     Settings,
@@ -258,6 +283,8 @@ struct App {
     settings_page: usize,
     error: Option<String>,
     busy: bool,
+    saves: save_guard::SaveGuard,
+    force_close: bool,
     loader: loader::Loader,
     loading: Option<(u64, Instant)>,
     texture_cache: VecDeque<(u64, egui::TextureHandle)>,
@@ -284,6 +311,7 @@ impl App {
             .unwrap_or_else(|| Settings { language: i18n::system_language(), ..Settings::default() });
         i18n::set_language(settings.language);
         keymap::migrate_jpeg_shortcut(&mut settings.shortcuts);
+        keymap::preserve_existing_x_shortcut(&mut settings.shortcuts);
         if let Some(binding)=settings.shortcuts.remove("Ctrl+Shift+S") {
             if binding!="Ctrl+Shift+S" {settings.shortcuts.entry("W".into()).or_insert(binding);}
         }
@@ -363,6 +391,8 @@ impl App {
             settings_page: 0,
             error: None,
             busy: false,
+            saves: save_guard::SaveGuard::default(),
+            force_close: false,
             loader: loader::Loader::new(cc.egui_ctx.clone()),
             loading: None,
             texture_cache: VecDeque::new(),
@@ -423,6 +453,13 @@ impl App {
         true
     }
     fn close_program(&mut self, ctx: &egui::Context) {
+        if self.force_close {ctx.send_viewport_cmd(egui::ViewportCommand::Close);return;}
+        if self.saves.active() {
+            if !matches!(self.dialog,Some(Dialog::Saving { .. })) {
+                self.dialog=Some(Dialog::Saving {close_selected:false});
+            }
+            return;
+        }
         if !self.confirm_abandon(PendingAction::Close) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
@@ -600,6 +637,15 @@ impl App {
             }
         }
         while let Ok(m) = self.rx.try_recv() {
+            let save_result=match &m {
+                Message::Saved(_,result)|Message::Export(result)=>Some(result.is_ok()),
+                Message::Lossless(result)=>Some(result.is_ok()),
+                Message::Restore(result)=>Some(result.is_ok()),
+                Message::BatchDone(errors)=>Some(errors.is_empty()),
+                _=>None,
+            };
+            let close_after_save=save_result.is_some_and(|success|self.saves.finish(success));
+            if !self.saves.active() && matches!(self.dialog,Some(Dialog::Saving { .. })) {self.dialog=None;}
             match m {
                 Message::BatchRenamed(old,new) => {
                     for path in &mut self.files {if *path==old {*path=new.clone();}}
@@ -752,6 +798,8 @@ impl App {
                     }
                 }
             }
+            if self.saves.active() {self.busy=true;}
+            if close_after_save {self.close_program(ctx);}
         }
     }
     fn navigate(&mut self, delta: isize) {
@@ -792,7 +840,7 @@ impl App {
             .add_filter(
                 "Imagens",
                 &[
-                    "jpg", "jpeg", "png", "webp", "avif", "gif", "bmp", "tif", "tiff", "heic",
+                    "jpg", "jpeg", "png", "webp", "jxl", "avif", "gif", "bmp", "tif", "tiff", "heic",
                     "ico", "svg", "svgz", "cbz",
                 ],
             )
@@ -838,7 +886,7 @@ impl App {
         let Some(path) = self.path.clone() else {
             return;
         };
-        self.busy = true;
+        self.busy = true;self.saves.begin();
         let tx = self.tx.clone();
         std::thread::spawn(move || {
             let _ = tx.send(Message::Lossless(backend::save_lossless_rotation(
@@ -979,7 +1027,7 @@ impl App {
             let Some(p) = self.path.clone() else {
                 return;
             };
-            self.busy = true;
+            self.busy = true;self.saves.begin();
             let tx = self.tx.clone();
             std::thread::spawn(move || {
                 let r = backend::save_lossless_crop(&p, c);
@@ -1009,7 +1057,7 @@ impl App {
             .unwrap_or(false)
         {
             let undo = self.file_undo.take().unwrap();
-            self.busy = true;
+            self.busy = true;self.saves.begin();
             let tx = self.tx.clone();
             std::thread::spawn(move || {
                 let r = undo
@@ -1058,9 +1106,9 @@ impl App {
         let mut dialog=rfd::FileDialog::new().set_title(t("Salvar WebP com parâmetros de IA (80%)")).set_file_name(format!("{stem}-ai.webp")).add_filter("WebP", &["webp"]);
         if let Some(parent)=source.as_deref().and_then(|p|p.parent()) {dialog=dialog.set_directory(parent);}
         let Some(path)=dialog.save_file() else {return;};
-        let tx=self.tx.clone();let context=self.loader.context();self.busy=true;
+        let tx=self.tx.clone();let context=self.loader.context();self.busy=true;self.saves.begin();
         std::thread::spawn(move || {
-            let result=ai_webp::export(&pixels,&path,&prompt,80,true);
+            let result=ai_webp::export(&pixels,&path,&prompt,Format::Webp,80,true);
             let _=tx.send(Message::Export(result));context.request_repaint();
         });
     }
@@ -1078,20 +1126,16 @@ impl App {
         {
             Some("jpg" | "jpeg") => Format::Jpeg,
             Some("webp") => Format::Webp,
+            Some("jxl") => Format::Jxl,
             _ => Format::Png,
         };
-        let quality = if format == Format::Webp {
-            self.settings.webp_quality
-        } else {
-            self.settings.jpeg_quality
-        };
+        let quality = self.settings.export_quality(format);
         if cfg!(windows) {
-            match save_dialog::choose(self.path.as_deref(),format,quality) {
+            match save_dialog::choose(self.path.as_deref(),format,|selected|self.settings.export_quality(selected)) {
                 Ok(Some(choice))=>{
-                    if choice.format==Format::Jpeg {self.settings.jpeg_quality=choice.quality;}
-                    if choice.format==Format::Webp {self.settings.webp_quality=choice.quality;}
+                    self.settings.set_export_quality(choice.format,choice.quality);
                     let pixels=self.image.clone().unwrap();let tx=self.tx.clone();let context=self.loader.context();
-                    self.busy=true;
+                    self.busy=true;self.saves.begin();
                     std::thread::spawn(move||{let result=backend::export(&pixels,&choice.path,choice.format,choice.quality);let _=tx.send(Message::Saved(choice.path,result));context.request_repaint();});
                 }
                 Ok(None)=>{},
@@ -1099,7 +1143,7 @@ impl App {
             }
             return;
         }
-        self.dialog = Some(Dialog::SaveAs { format, quality });
+        self.dialog = Some(Dialog::SaveAs { format, quality: quality.to_string() });
     }
 
     fn export_dialog(&mut self, format: Format) {
@@ -1129,13 +1173,9 @@ impl App {
         let Some(im) = self.image.clone() else {
             return;
         };
-        self.busy = true;
+        self.busy = true;self.saves.begin();
         let tx = self.tx.clone();
-        let q = if format == Format::Jpeg {
-            self.settings.jpeg_quality
-        } else {
-            self.settings.webp_quality
-        };
+        let q = self.settings.export_quality(format);
         std::thread::spawn(move || {
             let _ = tx.send(Message::Export(backend::export(&im, &p, format, q)));
         });
@@ -1391,7 +1431,7 @@ impl App {
         if files.is_empty() {
             return;
         }
-        self.busy = true;
+        self.busy = true;self.saves.begin();
         self.batch_progress = Some((0, files.len()));
         let tx = self.tx.clone();
         let cancel = Arc::new(AtomicBool::new(false));
@@ -1509,6 +1549,7 @@ impl App {
             }
             if self.dialog.is_some() {
                 if key == Key::Escape {
+                    if matches!(self.dialog,Some(Dialog::Saving { .. })) {self.saves.cancel_wait();}
                     self.dialog = None;
                 }
                 continue;
@@ -1709,6 +1750,7 @@ impl App {
                     Key::E => self.export_dialog(Format::Jpeg),
                     Key::W => self.export_dialog(Format::Webp),
                     Key::Q => self.export_dialog(Format::Png),
+                    Key::X if !m.alt && !m.shift && !repeat => self.export_dialog(Format::Jxl),
                     Key::Delete => {
                         if self.path.is_some() {
                             self.dialog = Some(Dialog::Delete {
@@ -1877,9 +1919,10 @@ impl App {
                                 ui.separator();
                                 ui.menu_button(t("Exportar"), |ui| {
                                     for (format, label, shortcut) in [
-                                        (Format::Jpeg, format!("Exportar JPEG (Qld {}%)", self.settings.jpeg_quality), "E"),
                                         (Format::Png, "Exportar PNG (sem perdas)".to_owned(), "Q"),
                                         (Format::Webp, format!("Exportar WebP (Qld {}%)", self.settings.webp_quality), "W"),
+                                        (Format::Jpeg, format!("Exportar JPEG (Qld {}%)", self.settings.jpeg_quality), "E"),
+                                        (Format::Jxl, format!("Exportar JPEG XL (Qld {}%)", self.settings.jxl_quality), "X"),
                                     ] {
                                         if item(ui, &label, shortcut) { self.export_dialog(format); }
                                     }
@@ -2667,6 +2710,7 @@ impl App {
         };
         let mut keep = true;
         let title = match &dialog {
+            Dialog::Saving { .. } => "Salvando imagem",
             Dialog::Effect(..) => "Efeitos",
             Dialog::GoTo(..) => "Ir para imagem",
             Dialog::Panorama { .. } => "Criar panorama",
@@ -2707,6 +2751,28 @@ impl App {
             if dialog_header(ui,title) {keep=false;}
             let mut content = |ui: &mut egui::Ui| {
             match &mut dialog {
+                Dialog::Saving {close_selected}=>{
+                    ui.set_width(440.0);
+                    ui.horizontal(|ui|{ui.spinner();ui.label(t("A imagem ainda está sendo salva."));});
+                    ui.label(t("Fechar agora pode interromper o salvamento e deixar um arquivo temporário."));
+                    let (switch,enter)=ctx.input_mut(|i|(
+                        i.consume_key(egui::Modifiers::NONE,Key::Tab)||i.consume_key(egui::Modifiers::SHIFT,Key::Tab)
+                        ||i.consume_key(egui::Modifiers::NONE,Key::ArrowLeft)||i.consume_key(egui::Modifiers::NONE,Key::ArrowRight),
+                        i.consume_key(egui::Modifiers::NONE,Key::Enter)));
+                    if switch {*close_selected=!*close_selected;}
+                    ui.horizontal(|ui| {
+                        let wait=ui.button(t("Aguardar"));
+                        if !*close_selected {wait.request_focus();}
+                        if wait.clicked() || (enter && !*close_selected) {self.saves.wait();}
+                        let close=ui.button(t("Fechar mesmo assim"));
+                        if *close_selected {close.request_focus();}
+                        if close.clicked() || (enter && *close_selected) {
+                            self.force_close=true;keep=false;
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        }
+                    });
+                    if self.saves.waiting() {ui.small(t("O programa fechará quando o salvamento terminar."));}
+                },
                 Dialog::GoTo(number,focus) => {
                     ui.set_width(340.0);
                     ui.label(format!("{}: 1–{}",t("Número da imagem"),self.files.len()));
@@ -2875,14 +2941,39 @@ impl App {
                 Dialog::SaveAs {format,quality}=>{
                     ui.set_width(430.0);
                     ui.label(t("Formato"));
-                    ui.horizontal(|ui| {ui.radio_value(format,Format::Jpeg,"JPG");ui.radio_value(format,Format::Png,"PNG");ui.radio_value(format,Format::Webp,"WebP");});
+                    let previous_format=*format;
+                    ui.horizontal(|ui| {
+                        ui.radio_value(format,Format::Jpeg,"JPG");
+                        ui.radio_value(format,Format::Png,"PNG");
+                        ui.radio_value(format,Format::Webp,"WebP");
+                        ui.radio_value(format,Format::Jxl,"JPEG XL");
+                    });
+                    if previous_format!=*format {
+                        *quality=self.settings.export_quality(*format).to_string();
+                    }
                     ui.add_space(8.0);
-                    if *format==Format::Png {ui.small(t("PNG preserva a imagem sem perdas; não usa qualidade percentual."));}
-                    else {ui.add(egui::Slider::new(quality,1..=100).text(t("Qualidade")).suffix("%"));}
+                    let value=if *format==Format::Png {
+                        ui.small(t("PNG preserva a imagem sem perdas; não usa qualidade percentual."));
+                        Some(100)
+                    } else {
+                        ui.horizontal(|ui| {
+                            ui.label(t("Qualidade"));
+                            ui.add(egui::TextEdit::singleline(quality).desired_width(56.0));
+                            ui.label("%");
+                        });
+                        ui.horizontal_wrapped(|ui| {
+                            for preset in save_dialog::QUALITY_PRESETS {
+                                if ui.button(format!("{preset}%")).clicked(){*quality=preset.to_string();}
+                            }
+                            if matches!(*format,Format::Webp|Format::Jxl) && ui.button(t("Sem perdas")).clicked() {
+                                *quality="100".into();
+                            }
+                        });
+                        save_dialog::parse_quality(quality)
+                    };
                     ui.separator();
-                    if ui.button(t("Salvar")).clicked() {
-                        if *format==Format::Jpeg {self.settings.jpeg_quality = *quality;}
-                        if *format==Format::Webp {self.settings.webp_quality = *quality;}
+                    if ui.add_enabled(value.is_some(),egui::Button::new(t("Salvar"))).clicked() {
+                        self.settings.set_export_quality(*format,value.unwrap());
                         self.export_dialog(*format);keep=false;
                     }
                     if let Some(path)=self.path.clone() {
@@ -2893,7 +2984,11 @@ impl App {
                     ui.set_width(440.0);ui.label(t("Substituir o arquivo atual pelas alterações?"));dialog_file(ui,path);
                     ui.small(t("O formato real será mantido. Formatos com perdas serão recomprimidos e os metadados serão removidos."));
                     if ui.button(t("Salvar")).clicked(){
-                        if let Some(pixels)=self.image.clone(){let path=path.clone();let tx=self.tx.clone();let ctx=ctx.clone();let quality=if path.extension().is_some_and(|e|e.eq_ignore_ascii_case("webp")){self.settings.webp_quality}else{self.settings.jpeg_quality};self.busy=true;
+                        if let Some(pixels)=self.image.clone(){let path=path.clone();let tx=self.tx.clone();let ctx=ctx.clone();let quality=match path.extension().and_then(|ext|ext.to_str()).map(str::to_ascii_lowercase).as_deref(){
+                                Some("webp")=>self.settings.webp_quality,
+                                Some("jxl")=>self.settings.jxl_quality,
+                                _=>self.settings.jpeg_quality,
+                            };self.busy=true;self.saves.begin();
                             std::thread::spawn(move||{let result=image_details::save_original(&pixels,&path,quality);let _=tx.send(Message::Saved(path,result));ctx.request_repaint();});}
                         keep=false;
                     }
@@ -3009,7 +3104,7 @@ impl App {
                             ("M ou V / C / G / T","Pintura: selecionar e mover / recortar / balde de tinta / texto"),
                             ("U / Shift+U","Pintura: última forma / alternar entre formas"),
                             ("Shift+J","Pintura: alternar correção localizada / remover"),
-                            ("R","Girar exibição 90° à direita"),("L","Girar exibição 90° à esquerda"),("F12","Painel de pintura"),("I","Informações da imagem"),("P","Preferências"),("C","Alternar zoom entre centro e canto superior esquerdo"),("E","Exportar JPEG"),("W","Exportar WebP"),("Q","Exportar PNG"),("Ctrl+P","Imprimir"),("Ctrl+O","Abrir imagem"),("Ctrl+S","Salvar imagem"),("Ctrl+A","Selecionar / desselecionar tudo"),
+                            ("R","Girar exibição 90° à direita"),("L","Girar exibição 90° à esquerda"),("F12","Painel de pintura"),("I","Informações da imagem"),("P","Preferências"),("C","Alternar zoom entre centro e canto superior esquerdo"),("E","Exportar JPEG"),("W","Exportar WebP"),("Q","Exportar PNG"),("X","Exportar JPEG XL"),("Ctrl+P","Imprimir"),("Ctrl+O","Abrir imagem"),("Ctrl+S","Salvar imagem"),("Ctrl+A","Selecionar / desselecionar tudo"),
                             ("Enter / Ctrl+Y","Aplicar recorte selecionado"),("Ctrl+Shift+L","Iniciar recorte JPEG sem perdas"),("Ctrl + setas","Redimensionar seleção proporcionalmente"),
                             ("Shift + setas","Mover seleção em passos maiores"),("Alt + setas","Alterar largura / altura da seleção"),
                             ("Ctrl+Z / Ctrl+J","Desfazer / refazer edições"),("Ctrl+C / Ctrl+Insert","Copiar imagem ou seleção"),("Ctrl+V","Colar como nova imagem"),
@@ -3088,10 +3183,10 @@ impl App {
                     if ui.button(t("Escolher pasta de saída")).clicked(){if let Some(p)=rfd::FileDialog::new().pick_folder(){*dest=p;}}
                     ui.checkbox(convert,t("Converter imagens"));
                     if *convert {
-                        ui.horizontal(|ui|{ui.radio_value(format,Format::Jpeg,"JPEG");ui.radio_value(format,Format::Webp,"WebP");ui.radio_value(format,Format::Png,"PNG");});
+                        ui.horizontal(|ui|{ui.radio_value(format,Format::Jpeg,"JPEG");ui.radio_value(format,Format::Webp,"WebP");ui.radio_value(format,Format::Png,"PNG");ui.radio_value(format,Format::Jxl,"JPEG XL");});
                     }
                     ui.add(egui::Slider::new(quality,1..=100).text(t("Qualidade")));
-                    ui.add_enabled(*convert && *format==Format::Webp,egui::Checkbox::new(preserve_ai,t("Preservar parâmetros de IA no WebP (EXIF)")));
+                    ui.add_enabled(*convert && matches!(*format,Format::Webp|Format::Jxl),egui::Checkbox::new(preserve_ai,t("Preservar parâmetros de IA (EXIF)")));
                     ui.checkbox(resize,t("Redimensionar em lote"));
                         if *resize {
                             ui.horizontal(|ui| {ui.radio_value(percentage,false,t("Pixels"));ui.radio_value(percentage,true,t("Porcentagem"));});
@@ -3131,7 +3226,7 @@ impl App {
                     ui.add(egui::Image::new((texture.id(),Vec2::splat(dialog_art::DISPLAY_SIZE))).sense(Sense::hover()));
                 });
             } else {content(ui);}
-            if !matches!(dialog,Dialog::Delete { .. }|Dialog::FolderEnd { .. }|Dialog::Unsaved { .. }){
+            if !matches!(dialog,Dialog::Saving { .. }|Dialog::Delete { .. }|Dialog::FolderEnd { .. }|Dialog::Unsaved { .. }){
                 ui.add_space(4.0);ui.separator();
                 let label=if matches!(dialog,Dialog::Effect(..)|Dialog::Rename(..)|Dialog::Resize(..)|Dialog::ManualRatio{..}|Dialog::SaveOriginal(_)|Dialog::SaveAs{..}|Dialog::Batch{..}){"Cancelar"}else{"Fechar"};
                 if ui.button(t(label)).clicked(){keep=false;}
@@ -3140,7 +3235,7 @@ impl App {
         });
         if keep {
             self.dialog = Some(dialog);
-        }
+        } else if matches!(dialog,Dialog::Saving { .. }) {self.saves.cancel_wait();}
     }
 }
 
@@ -3288,11 +3383,9 @@ impl eframe::App for App {
             visuals.widgets.active.bg_fill = neon.gamma_multiply(0.4);
         }
         ctx.set_visuals(visuals);
-        if ctx.input(|i| i.viewport().close_requested()) && self.dirty {
+        if ctx.input(|i| i.viewport().close_requested()) && !self.force_close && (self.saves.active() || self.dirty) {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            if !matches!(self.dialog, Some(Dialog::Unsaved { .. })) {
-                self.confirm_abandon(PendingAction::Close);
-            }
+            if self.saves.active() || !matches!(self.dialog,Some(Dialog::Unsaved { .. })) {self.close_program(ctx);}
         }
         self.pixel_ratio = ctx.pixels_per_point();
         self.messages(ctx);

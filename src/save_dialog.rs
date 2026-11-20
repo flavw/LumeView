@@ -6,10 +6,19 @@ pub struct Choice {
     pub format: Format,
     pub quality: u8,
 }
+pub const QUALITY_PRESETS: [u8; 4] = [60, 75, 80, 90];
+
+pub fn parse_quality(text: &str) -> Option<u8> {
+    let text = text.trim();
+    let number = text.strip_suffix('%').unwrap_or(text).trim().parse().ok()?;
+    (1..=100).contains(&number).then_some(number)
+}
+
 fn selected_format(index: u32) -> Format {
     match index {
         1 => Format::Jpeg,
         2 => Format::Png,
+        4 => Format::Jxl,
         _ => Format::Webp,
     }
 }
@@ -18,10 +27,11 @@ fn format_index(format: Format) -> u32 {
         Format::Jpeg => 1,
         Format::Png => 2,
         Format::Webp => 3,
+        Format::Jxl => 4,
     }
 }
 #[cfg(windows)]
-pub fn choose(path: Option<&Path>, format: Format, quality: u8) -> Result<Option<Choice>, String> {
+pub fn choose(path: Option<&Path>, format: Format, quality_for: impl Fn(Format) -> u8) -> Result<Option<Choice>, String> {
     use windows::{
         core::{Interface, HSTRING, PCWSTR},
         Win32::{
@@ -58,11 +68,13 @@ pub fn choose(path: Option<&Path>, format: Format, quality: u8) -> Result<Option
                 HSTRING::from("JPEG (*.jpg; *.jpeg)"),
                 HSTRING::from("PNG (*.png)"),
                 HSTRING::from("WebP (*.webp)"),
+                HSTRING::from("JPEG XL (*.jxl)"),
             ];
             let patterns = [
                 HSTRING::from("*.jpg;*.jpeg"),
                 HSTRING::from("*.png"),
                 HSTRING::from("*.webp"),
+                HSTRING::from("*.jxl"),
             ];
             let filters: Vec<_> = names
                 .iter()
@@ -90,19 +102,22 @@ pub fn choose(path: Option<&Path>, format: Format, quality: u8) -> Result<Option
                     SHCreateItemFromParsingName(&HSTRING::from(parent.as_os_str()), None)?;
                 dialog.SetFolder(&folder)?;
             }
+            const SAVED: u32 = 1010;
+            const CUSTOM: u32 = 1011;
+            const LOSSLESS: u32 = 1012;
             let custom: IFileDialogCustomize = dialog.cast()?;
-            custom.AddText(100, &HSTRING::from(crate::i18n::t("Qualidade JPEG / WebP")))?;
+            custom.StartVisualGroup(100, &HSTRING::from(crate::i18n::t("Qualidade")))?;
             custom.AddComboBox(101)?;
-            for value in (1..=100u32).rev() {
-                custom.AddControlItem(101, value, &HSTRING::from(format!("{value}%")))?;
+            custom.AddControlItem(101, SAVED, &HSTRING::from(crate::i18n::t("Usar qualidade de exportação")))?;
+            for value in QUALITY_PRESETS.into_iter().rev() {
+                custom.AddControlItem(101, u32::from(value), &HSTRING::from(format!("{value}%")))?;
             }
-            custom.SetSelectedControlItem(101, u32::from(quality.clamp(1, 100)))?;
-            custom.AddText(
-                102,
-                &HSTRING::from(crate::i18n::t(
-                    "PNG preserva a imagem sem perdas; não usa qualidade percentual.",
-                )),
-            )?;
+            custom.AddControlItem(101, LOSSLESS, &HSTRING::from(crate::i18n::t("Sem perdas (WebP / JPEG XL)")))?;
+            custom.AddControlItem(101, CUSTOM, &HSTRING::from(crate::i18n::t("Personalizada (digite abaixo)")))?;
+            custom.SetSelectedControlItem(101, SAVED)?;
+            custom.AddEditBox(102, &HSTRING::from(quality_for(format).to_string()))?;
+            custom.AddText(103, &HSTRING::from(crate::i18n::t("PNG preserva a imagem sem perdas; não usa qualidade percentual.")))?;
+            custom.EndVisualGroup()?;
             let owner = HWND(windows_sys::Win32::UI::Input::KeyboardAndMouse::GetActiveWindow());
             if let Err(error) = dialog.Show(owner) {
                 if error.code() == windows::core::HRESULT::from_win32(ERROR_CANCELLED.0) {
@@ -125,13 +140,30 @@ pub fn choose(path: Option<&Path>, format: Format, quality: u8) -> Result<Option
                 Some("jpg" | "jpeg") => Format::Jpeg,
                 Some("png") => Format::Png,
                 Some("webp") => Format::Webp,
+                Some("jxl") => Format::Jxl,
                 _ => selected,
             };
-            Ok(Some(Choice {
-                path,
-                format: actual,
-                quality: custom.GetSelectedControlItem(101)? as u8,
-            }))
+            let invalid = |message: &str| windows::core::Error::new(
+                windows::Win32::Foundation::E_INVALIDARG,
+                crate::i18n::t(message),
+            );
+            let quality = if actual == Format::Png {
+                100
+            } else {
+                match custom.GetSelectedControlItem(101)? {
+                    SAVED => quality_for(actual),
+                    CUSTOM => {
+                        let raw = custom.GetEditBoxText(102)?;
+                        let text = windows::core::PWSTR(raw).to_string();
+                        CoTaskMemFree(Some(raw.cast()));
+                        parse_quality(&text?).ok_or_else(|| invalid("Digite uma qualidade de 1 a 100."))?
+                    }
+                    LOSSLESS if actual == Format::Jpeg => return Err(invalid("A opção sem perdas está disponível para WebP e JPEG XL.")),
+                    LOSSLESS => 100,
+                    value => value as u8,
+                }
+            };
+            Ok(Some(Choice { path, format: actual, quality }))
         }
     };
     run().map_err(|error| error.to_string())
@@ -140,7 +172,7 @@ pub fn choose(path: Option<&Path>, format: Format, quality: u8) -> Result<Option
 pub fn choose(
     _path: Option<&Path>,
     _format: Format,
-    _quality: u8,
+    _quality_for: impl Fn(Format) -> u8,
 ) -> Result<Option<Choice>, String> {
     Ok(None)
 }
@@ -149,7 +181,7 @@ mod tests {
     use super::*;
     #[test]
     fn native_filter_indices_round_trip() {
-        for format in [Format::Jpeg, Format::Png, Format::Webp] {
+        for format in [Format::Jpeg, Format::Png, Format::Webp, Format::Jxl] {
             assert_eq!(selected_format(format_index(format)), format);
         }
     }

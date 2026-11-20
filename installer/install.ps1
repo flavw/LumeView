@@ -27,7 +27,7 @@ if(Test-Path -LiteralPath $toolsRoot){
  }
 }
 if($StageOnly){Write-Output "Arquivos preparados em $Target";exit 0}
-$extensions=@('.jpg','.jpeg','.png','.webp','.avif','.gif','.bmp','.tif','.tiff','.ico','.heic','.svg','.svgz','.cbz')
+$extensions=@('.jpg','.jpeg','.png','.webp','.jxl','.avif','.gif','.bmp','.tif','.tiff','.ico','.heic','.svg','.svgz','.cbz')
 $prog='HKCU:\Software\Classes\LumeView.Image'
 Ensure-RegistryKey -Path $prog | Out-Null
 Set-Item -LiteralPath $prog -Value 'Imagem do LumeView'
@@ -80,7 +80,7 @@ $link=$shell.CreateShortcut($start);$link.TargetPath=$exe;$link.WorkingDirectory
 $uninstall='HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\LumeView'
 Ensure-RegistryKey -Path $uninstall | Out-Null
 Set-ItemProperty -LiteralPath $uninstall -Name DisplayName -Value 'LumeView'
-Set-ItemProperty -LiteralPath $uninstall -Name DisplayVersion -Value '0.37.2'
+Set-ItemProperty -LiteralPath $uninstall -Name DisplayVersion -Value '0.38.6'
 Set-ItemProperty -LiteralPath $uninstall -Name DisplayIcon -Value $exe
 Set-ItemProperty -LiteralPath $uninstall -Name InstallLocation -Value $Target
 Set-ItemProperty -LiteralPath $uninstall -Name UninstallString -Value ('powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "'+(Join-Path $Target 'installer\uninstall.ps1')+'"')

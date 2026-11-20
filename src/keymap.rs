@@ -6,7 +6,7 @@ pub const ACTIONS: &[(&str,&str)] = &[
     ("Girar exibição 90° à direita", "R"),
     ("Girar exibição 90° à esquerda", "L"),
     ("Abrir", "Ctrl+O"), ("Salvar imagem","Ctrl+S"), ("Exportar JPEG","E"),
-    ("Exportar WebP","W"), ("Exportar PNG","Q"), ("Imprimir","Ctrl+P"),
+    ("Exportar WebP","W"), ("Exportar PNG","Q"), ("Exportar JPEG XL","X"), ("Imprimir","Ctrl+P"),
     ("Informações da imagem","I"), ("Preferências","P"), ("Renomear","F2"),
     ("Recarregar imagem e pasta","F5"), ("Mover arquivo","F7"), ("Copiar arquivo","F8"),
     ("Tela cheia / janela","F"), ("Desfazer","Ctrl+Z"), ("Refazer","Ctrl+J"),
@@ -29,6 +29,22 @@ pub fn migrate_jpeg_shortcut(map: &mut BTreeMap<String,String>) {
     if let Some(binding)=map.remove("S") {
         if binding!="S" {map.entry("E".into()).or_insert(binding);}
     }
+}
+// A new default must not invalidate an existing set of custom shortcuts.
+pub fn preserve_existing_x_shortcut(map: &mut BTreeMap<String,String>) {
+    if map.contains_key("X") || !ACTIONS.iter().any(|(_, default)| {
+        *default != "X" && map.get(*default).and_then(|value| parse(value))
+            .is_some_and(|binding| same(binding, (Key::X, Modifiers::NONE)))
+    }) {
+        return;
+    }
+    for candidate in ["D", "K", "Y", "Alt+X", "Ctrl+Alt+X"] {
+        map.insert("X".into(), candidate.into());
+        if validation(map) {
+            return;
+        }
+    }
+    map.remove("X");
 }
 fn same(a: (Key,Modifiers),b: (Key,Modifiers)) -> bool {
     a.0==b.0 && a.1.ctrl==b.1.ctrl && a.1.alt==b.1.alt && a.1.shift==b.1.shift
@@ -70,6 +86,19 @@ pub fn current_label(default: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn jpeg_xl_uses_x_unless_an_existing_custom_binding_needs_it() {
+        let mut map = BTreeMap::new();
+        preserve_existing_x_shortcut(&mut map);
+        assert!(validation(&map));
+        assert!(same(remap(Key::X, Modifiers::NONE, &map).unwrap(), parse("X").unwrap()));
+
+        map.insert("E".into(), "x".into());
+        preserve_existing_x_shortcut(&mut map);
+        assert!(validation(&map));
+        assert!(same(remap(Key::X, Modifiers::NONE, &map).unwrap(), parse("E").unwrap()));
+        assert!(same(remap(Key::D, Modifiers::NONE, &map).unwrap(), parse("X").unwrap()));
+    }
     #[test]
     fn jpeg_uses_e_preserves_save_and_migrates_custom_bindings() {
         let mut map=BTreeMap::new();
