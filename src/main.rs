@@ -2,6 +2,7 @@
 mod backend;
 mod text_layer;
 mod save_dialog;
+mod save_metadata;
 mod paint;
 mod effects;
 mod editor;
@@ -192,6 +193,7 @@ enum Dialog {
     SaveAs {
         format: Format,
         quality: String,
+        preserve_metadata: bool,
     },
     Dependencies,
     Settings,
@@ -1130,23 +1132,40 @@ impl App {
             _ => Format::Png,
         };
         let quality = self.settings.export_quality(format);
+        let source = self.path.clone().or_else(|| {
+            self.book.as_ref().and_then(|book| book.pages.get(self.index).cloned())
+        });
         if cfg!(windows) {
-            match save_dialog::choose(self.path.as_deref(),format,|selected|self.settings.export_quality(selected)) {
-                Ok(Some(choice))=>{
-                    self.settings.set_export_quality(choice.format,choice.quality);
-                    let pixels=self.image.clone().unwrap();let tx=self.tx.clone();let context=self.loader.context();
-                    self.busy=true;self.saves.begin();
-                    std::thread::spawn(move||{let result=backend::export(&pixels,&choice.path,choice.format,choice.quality);let _=tx.send(Message::Saved(choice.path,result));context.request_repaint();});
+            match save_dialog::choose(source.as_deref(), format, |selected| self.settings.export_quality(selected)) {
+                Ok(Some(choice)) => {
+                    self.settings.set_export_quality(choice.format, choice.quality);
+                    let pixels = self.image.clone().unwrap();
+                    let tx = self.tx.clone();
+                    let context = self.loader.context();
+                    self.busy = true;
+                    self.saves.begin();
+                    std::thread::spawn(move || {
+                        let result = match source.as_deref().filter(|_| choice.preserve_metadata) {
+                            Some(source) => save_metadata::save(&pixels, source, &choice.path, choice.format, choice.quality),
+                            None => backend::export(&pixels, &choice.path, choice.format, choice.quality),
+                        };
+                        let _ = tx.send(Message::Saved(choice.path, result));
+                        context.request_repaint();
+                    });
                 }
-                Ok(None)=>{},
-                Err(error)=>self.fail(error),
+                Ok(None) => {}
+                Err(error) => self.fail(error),
             }
             return;
         }
-        self.dialog = Some(Dialog::SaveAs { format, quality: quality.to_string() });
+        self.dialog = Some(Dialog::SaveAs { format, quality: quality.to_string(), preserve_metadata: false });
     }
 
     fn export_dialog(&mut self, format: Format) {
+        self.export_dialog_with_metadata(format, false);
+    }
+
+    fn export_dialog_with_metadata(&mut self, format: Format, preserve_metadata: bool) {
         if self.image.is_none() || self.busy {
             return;
         }
@@ -1166,18 +1185,27 @@ impl App {
         }
         if let Some(p) = d.save_file() {
             // The native dialog already confirms replacement of this exact path.
-            self.export_to(p, format);
+            self.export_to(p, format, preserve_metadata);
         }
     }
-    fn export_to(&mut self, p: PathBuf, format: Format) {
+    fn export_to(&mut self, p: PathBuf, format: Format, preserve_metadata: bool) {
         let Some(im) = self.image.clone() else {
             return;
         };
         self.busy = true;self.saves.begin();
         let tx = self.tx.clone();
         let q = self.settings.export_quality(format);
+        let source = preserve_metadata.then(|| self.path.clone().or_else(|| {
+            self.book.as_ref().and_then(|book| book.pages.get(self.index).cloned())
+        })).flatten();
+        let context = self.loader.context();
         std::thread::spawn(move || {
-            let _ = tx.send(Message::Export(backend::export(&im, &p, format, q)));
+            let result = match source.as_deref() {
+                Some(source) => save_metadata::save(&im, source, &p, format, q),
+                None => backend::export(&im, &p, format, q),
+            };
+            let _ = tx.send(Message::Export(result));
+            context.request_repaint();
         });
     }
     fn toggle_fullscreen(&mut self, ctx: &egui::Context) {
@@ -2925,7 +2953,7 @@ impl App {
                 Dialog::Information=>{
                     ui.set_width(information_width);
                     if ui.button(t("Copiar tudo")).clicked(){
-                        let text=self.image_info.iter().map(|(key,value)|format!("{}:\n{}",t(key),value)).collect::<Vec<_>>().join("\n\n");
+                        let text=self.image_info.iter().map(|(key,value)|format!("{}:\n{}",t(key),information_panel::display_value(key,value))).collect::<Vec<_>>().join("\n\n");
                         match arboard::Clipboard::new().and_then(|mut clipboard|clipboard.set_text(text)){Ok(())=>self.toast(t("Metadados copiados.")),Err(e)=>self.fail(e.to_string())}
                     }
                     ui.separator();
@@ -2938,7 +2966,7 @@ impl App {
 
                     });
                 },
-                Dialog::SaveAs {format,quality}=>{
+                Dialog::SaveAs {format,quality,preserve_metadata}=>{
                     ui.set_width(430.0);
                     ui.label(t("Formato"));
                     let previous_format=*format;
@@ -2972,9 +3000,12 @@ impl App {
                         save_dialog::parse_quality(quality)
                     };
                     ui.separator();
+                    if self.path.is_some() || self.book.is_some() {
+                        ui.checkbox(preserve_metadata,t("Preservar metadados"));
+                    }
                     if ui.add_enabled(value.is_some(),egui::Button::new(t("Salvar"))).clicked() {
                         self.settings.set_export_quality(*format,value.unwrap());
-                        self.export_dialog(*format);keep=false;
+                        self.export_dialog_with_metadata(*format,*preserve_metadata);keep=false;
                     }
                     if let Some(path)=self.path.clone() {
                         if ui.button(t("Salvar no formato original")).clicked(){self.dialog=Some(Dialog::SaveOriginal(path));keep=false;}

@@ -1,5 +1,6 @@
 {
-  "Use export quality": ["Usar calidad de exportación", "Utiliser la qualité d’exportation"],
+  "Preserve metadata": ["Conservar metadatos", "Conserver les métadonnées"],
+  "Metadata exceeds the JPEG EXIF limit. Choose another format.": ["Los metadatos superan el límite EXIF de JPEG. Elige otro formato.", "Les métadonnées dépassent la limite EXIF du JPEG. Choisissez un autre format."],
   "Lossless (WebP / JPEG XL)": ["Sin pérdida (WebP / JPEG XL)", "Sans perte (WebP / JPEG XL)"],
   "Custom (type below)": ["Personalizada (escribe abajo)", "Personnalisée (saisir ci-dessous)"],
   "Enter a quality from 1 to 100.": ["Introduce una calidad del 1 al 100.", "Saisissez une qualité de 1 à 100."],

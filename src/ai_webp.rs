@@ -29,9 +29,14 @@ pub fn read_prompt(path: &Path) -> backend::Result<Option<String>> {
     Ok(prompt(&rows))
 }
 
-fn exif(text: &str) -> Vec<u8> {
+pub(crate) fn unicode_comment(text: &str) -> Vec<u8> {
     let mut comment=b"UNICODE\0\xfe\xff".to_vec();
     for unit in text.encode_utf16().chain(std::iter::once(0)) {comment.extend(unit.to_be_bytes());}
+    comment
+}
+
+fn exif(text: &str) -> Vec<u8> {
+    let comment = unicode_comment(text);
     let mut data=b"II\x2a\0\x08\0\0\0".to_vec();
     data.extend(1u16.to_le_bytes());
     data.extend(0x8769u16.to_le_bytes());data.extend(4u16.to_le_bytes());
@@ -48,10 +53,14 @@ fn chunk(out: &mut Vec<u8>,kind: &[u8;4],data: &[u8]) {
 }
 
 fn attach(data: &[u8],text: &str,width: u32,height: u32,alpha: bool) -> backend::Result<Vec<u8>> {
+    if text.len()>16*1024*1024 {return Err("AI metadata exceeds the 16 MiB limit".into());}
+    attach_tiff(data, &exif(text), width, height, alpha)
+}
+
+pub(crate) fn attach_tiff(data: &[u8],tiff: &[u8],width: u32,height: u32,alpha: bool) -> backend::Result<Vec<u8>> {
     if data.get(..4)!=Some(b"RIFF") || data.get(8..12)!=Some(b"WEBP") || width==0 || height==0 || width>0x1000000 || height>0x1000000 {
         return Err("Invalid WebP container or dimensions".into());
     }
-    if text.len()>16*1024*1024 {return Err("AI metadata exceeds the 16 MiB limit".into());}
     let mut chunks=Vec::new();let mut at=12;
     while at<data.len() {
         let header=data.get(at..at+8).ok_or("Truncated WebP chunk")?;
@@ -73,7 +82,7 @@ fn attach(data: &[u8],text: &str,width: u32,height: u32,alpha: bool) -> backend:
             let mut extended=body.to_vec();extended[0]|=8;chunk(&mut out,b"VP8X",&extended);
         } else {chunk(&mut out,kind.try_into().unwrap(),body);}
     }
-    chunk(&mut out,b"EXIF",&exif(text));
+    chunk(&mut out,b"EXIF",tiff);
     let size=u32::try_from(out.len()-8).map_err(|_|"WebP too large")?;out[4..8].copy_from_slice(&size.to_le_bytes());
     Ok(out)
 }

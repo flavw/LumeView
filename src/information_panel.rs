@@ -14,6 +14,13 @@ fn value_field(ui: &mut egui::Ui,value: &str) -> egui::text_edit::TextEditOutput
 
 pub enum Action {Copy(String), SaveAiWebp}
 
+pub fn display_value<'a>(key: &str, value: &'a str) -> std::borrow::Cow<'a, str> {
+    if key == "Transparência" && matches!(value, "Sim" | "Não") {
+        return t(value).into();
+    }
+    value.into()
+}
+
 pub fn show(ui: &mut egui::Ui,rows: &[(String,String)],busy: bool) -> Option<Action> {
     let mut action=None;
     for (key,value) in rows {
@@ -38,7 +45,7 @@ pub fn show(ui: &mut egui::Ui,rows: &[(String,String)],busy: bool) -> Option<Act
                 ui.allocate_ui_with_layout(egui::vec2(130.0,0.0),egui::Layout::top_down(egui::Align::Min),|ui| {
                     ui.label(t(key));
                 });
-                ui.add(egui::Label::new(value).wrap().selectable(true));
+                ui.add(egui::Label::new(display_value(key, value).as_ref()).wrap().selectable(true));
             });
         }
     }

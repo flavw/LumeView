@@ -5,6 +5,7 @@ pub struct Choice {
     pub path: PathBuf,
     pub format: Format,
     pub quality: u8,
+    pub preserve_metadata: bool,
 }
 pub const QUALITY_PRESETS: [u8; 4] = [60, 75, 80, 90];
 
@@ -55,6 +56,7 @@ pub fn choose(path: Option<&Path>, format: Format, quality_for: impl Fn(Format) 
             }
         }
     }
+    let source_present = path.is_some();
     let run = || -> windows::core::Result<Option<Choice>> {
         unsafe {
             CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE).ok()?;
@@ -102,22 +104,37 @@ pub fn choose(path: Option<&Path>, format: Format, quality_for: impl Fn(Format) 
                     SHCreateItemFromParsingName(&HSTRING::from(parent.as_os_str()), None)?;
                 dialog.SetFolder(&folder)?;
             }
-            const SAVED: u32 = 1010;
             const CUSTOM: u32 = 1011;
             const LOSSLESS: u32 = 1012;
             let custom: IFileDialogCustomize = dialog.cast()?;
             custom.StartVisualGroup(100, &HSTRING::from(crate::i18n::t("Qualidade")))?;
             custom.AddComboBox(101)?;
-            custom.AddControlItem(101, SAVED, &HSTRING::from(crate::i18n::t("Usar qualidade de exportação")))?;
             for value in QUALITY_PRESETS.into_iter().rev() {
                 custom.AddControlItem(101, u32::from(value), &HSTRING::from(format!("{value}%")))?;
             }
             custom.AddControlItem(101, LOSSLESS, &HSTRING::from(crate::i18n::t("Sem perdas (WebP / JPEG XL)")))?;
             custom.AddControlItem(101, CUSTOM, &HSTRING::from(crate::i18n::t("Personalizada (digite abaixo)")))?;
-            custom.SetSelectedControlItem(101, SAVED)?;
-            custom.AddEditBox(102, &HSTRING::from(quality_for(format).to_string()))?;
+            let initial_format = if format == Format::Png { Format::Jpeg } else { format };
+            let initial_quality = quality_for(initial_format).clamp(1, 100);
+            let initial_choice = if QUALITY_PRESETS.contains(&initial_quality) {
+                u32::from(initial_quality)
+            } else if initial_quality == 100 && matches!(initial_format, Format::Webp | Format::Jxl) {
+                LOSSLESS
+            } else {
+                CUSTOM
+            };
+            custom.SetSelectedControlItem(101, initial_choice)?;
+            custom.AddEditBox(102, &HSTRING::from(initial_quality.to_string()))?;
             custom.AddText(103, &HSTRING::from(crate::i18n::t("PNG preserva a imagem sem perdas; não usa qualidade percentual.")))?;
             custom.EndVisualGroup()?;
+            const PRESERVE_METADATA: u32 = 104;
+            if path.is_some() {
+                custom.AddCheckButton(
+                    PRESERVE_METADATA,
+                    &HSTRING::from(crate::i18n::t("Preservar metadados")),
+                    false,
+                )?;
+            }
             let owner = HWND(windows_sys::Win32::UI::Input::KeyboardAndMouse::GetActiveWindow());
             if let Err(error) = dialog.Show(owner) {
                 if error.code() == windows::core::HRESULT::from_win32(ERROR_CANCELLED.0) {
@@ -151,7 +168,6 @@ pub fn choose(path: Option<&Path>, format: Format, quality_for: impl Fn(Format) 
                 100
             } else {
                 match custom.GetSelectedControlItem(101)? {
-                    SAVED => quality_for(actual),
                     CUSTOM => {
                         let raw = custom.GetEditBoxText(102)?;
                         let text = windows::core::PWSTR(raw).to_string();
@@ -163,7 +179,9 @@ pub fn choose(path: Option<&Path>, format: Format, quality_for: impl Fn(Format) 
                     value => value as u8,
                 }
             };
-            Ok(Some(Choice { path, format: actual, quality }))
+            let preserve_metadata = source_present
+                && custom.GetCheckButtonState(PRESERVE_METADATA)?.as_bool();
+            Ok(Some(Choice { path, format: actual, quality, preserve_metadata }))
         }
     };
     run().map_err(|error| error.to_string())
