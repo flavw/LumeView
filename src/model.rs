@@ -10,6 +10,24 @@ pub struct Crop {
 }
 
 impl Crop {
+    pub fn invert_ratio(self, image_width: u32, image_height: u32) -> Self {
+        let scale = (f64::from(image_width) / f64::from(self.h))
+            .min(f64::from(image_height) / f64::from(self.w))
+            .min(1.0);
+        let w = ((f64::from(self.h) * scale).round() as u32).clamp(1, image_width);
+        let h = ((f64::from(self.w) * scale).round() as u32).clamp(1, image_height);
+        let center_axis = |origin, old_size, new_size, max_origin| {
+            let offset = (i64::from(old_size) - i64::from(new_size)) / 2;
+            (i64::from(origin) + offset).clamp(0, i64::from(max_origin)) as u32
+        };
+        Self {
+            x: center_axis(self.x, self.w, w, image_width - w),
+            y: center_axis(self.y, self.h, h, image_height - h),
+            w,
+            h,
+        }
+    }
+
     /// Alt-drag: resize opposing edges around the original center, in image pixels.
     pub fn resize_centered(self, handle: u8, dx: i64, dy: i64, iw: u32, ih: u32, ratio: Option<f32>) -> Self {
         let c=self.bounded(iw,ih);
@@ -337,6 +355,20 @@ mod tests {
         assert!(!shift_delete_cut(false, true, false));
         assert!(!shift_delete_cut(true, true, false));
         assert!(!shift_delete_cut(true, false, true));
+    }
+    #[test]
+    fn invert_free_crop_swaps_dimensions_without_exceeding_the_image() {
+        let crop = Crop { x: 100, y: 80, w: 200, h: 100 };
+        assert_eq!(crop.invert_ratio(600, 400), Crop { x: 150, y: 30, w: 100, h: 200 });
+
+        let odd_width = Crop { w: 201, ..crop };
+        assert_eq!(odd_width.invert_ratio(600, 400).invert_ratio(600, 400), odd_width);
+
+        let at_edge = Crop { x: 100, y: 0, w: 200, h: 100 };
+        assert_eq!(at_edge.invert_ratio(600, 400), Crop { x: 150, y: 0, w: 100, h: 200 });
+
+        let full_image = Crop::centered(800, 400, None);
+        assert_eq!(full_image.invert_ratio(800, 400), Crop { x: 300, y: 0, w: 200, h: 400 });
     }
     #[test]
     fn alt_resize_keeps_center_and_bounds_for_every_handle() {

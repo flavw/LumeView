@@ -61,6 +61,8 @@ const FITS: [(&str, Fit); 7] = [
     ("6  Ajustar altura", Fit::Height),
     ("7  Ajustar lado menor", Fit::SmallSide),
 ];
+const TOOLBAR_BUTTON_SIZE: f32 = 30.0;
+const TOOLBAR_WIDTH: f32 = 10.0 * TOOLBAR_BUTTON_SIZE;
 
 #[derive(Clone, Copy, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 enum Theme {
@@ -913,8 +915,19 @@ impl App {
         }
     }
     fn invert_crop_ratio(&mut self) {
+        if self.image.is_none() || self.busy || self.fullscreen {
+            return;
+        }
+        let Some(crop) = self.selection else {
+            return;
+        };
+        self.drag_start = None;
         if let Some(ratio) = self.ratio {
-            self.begin_crop(Some(1.0 / ratio), self.lossless);
+            self.begin_crop(Some(ratio.recip()), self.lossless);
+        } else {
+            let (width, height) = self.dimensions();
+            self.selection = Some(crop.invert_ratio(width, height));
+            self.align_selection();
         }
     }
     fn begin_crop(&mut self, ratio: Option<f32>, lossless: bool) {
@@ -1426,6 +1439,14 @@ impl App {
             }
         }
     }
+    fn confirm_delete(&mut self, permanent: bool) {
+        if self.path.is_some() {
+            self.dialog = Some(Dialog::Delete {
+                permanent,
+                cancel_selected: false,
+            });
+        }
+    }
     fn delete(&mut self, permanent: bool) {
         if self.confirm_abandon(PendingAction::Delete(permanent)) {
             return;
@@ -1547,11 +1568,8 @@ impl App {
                             )
                         }) =>
                     {
-                        if self.loading.is_none() && self.path.is_some() {
-                            self.dialog = Some(Dialog::Delete {
-                                permanent: true,
-                                cancel_selected: false,
-                            });
+                        if self.loading.is_none() {
+                            self.confirm_delete(true);
                         }
                         continue;
                     }
@@ -1779,14 +1797,7 @@ impl App {
                     Key::W => self.export_dialog(Format::Webp),
                     Key::Q => self.export_dialog(Format::Png),
                     Key::X if !m.alt && !m.shift && !repeat => self.export_dialog(Format::Jxl),
-                    Key::Delete => {
-                        if self.path.is_some() {
-                            self.dialog = Some(Dialog::Delete {
-                                permanent: m.shift,
-                                cancel_selected: false,
-                            });
-                        }
-                    }
+                    Key::Delete => self.confirm_delete(m.shift),
                     Key::Plus | Key::Equals => self.zoom_by(1.25),
                     Key::Minus => self.zoom_by(0.8),
                     Key::ArrowLeft | Key::ArrowRight | Key::ArrowUp | Key::ArrowDown => {
@@ -1897,7 +1908,7 @@ impl App {
                     })
                     .sum::<f32>();
                 ui.set_width(if self.settings.show_toolbar {
-                    9.0 * 30.0
+                    TOOLBAR_WIDTH
                 } else {
                     menu_width
                 });
@@ -1906,7 +1917,11 @@ impl App {
                     .fill(ui.visuals().panel_fill)
                     .inner_margin(egui::Margin::symmetric(4, 2))
                     .show(ui, |ui| {
-                        if self.busy || self.loading.is_some() || self.editor.pending() {
+                        if self.busy
+                            || self.loading.is_some()
+                            || self.editor.pending()
+                            || matches!(self.dialog, Some(Dialog::Delete { .. }))
+                        {
                             ui.disable();
                         }
                         egui::menu::bar(ui, |ui| {
@@ -1988,16 +2003,10 @@ impl App {
                                     self.move_file(true);
                                 }
                                 if item(ui, "Enviar à lixeira", "Del") {
-                                    self.dialog = Some(Dialog::Delete {
-                                        permanent: false,
-                                        cancel_selected: false,
-                                    });
+                                    self.confirm_delete(false);
                                 }
                                 if item(ui, "Excluir permanentemente", "Shift+Del") {
-                                    self.dialog = Some(Dialog::Delete {
-                                        permanent: true,
-                                        cancel_selected: false,
-                                    });
+                                    self.confirm_delete(true);
                                 }
                                 ui.separator();
                                 if item(ui, "Sair", "Esc") {
@@ -2053,9 +2062,11 @@ impl App {
                                 if item(ui, "Aplicar recorte", "Enter / Ctrl+Y") {
                                     self.apply_crop(ctx);
                                 }
-                                if item(ui, "Inverter proporção", "") {
-                                    self.invert_crop_ratio();
-                                }
+                                ui.add_enabled_ui(self.selection.is_some(), |ui| {
+                                    if item(ui, "Inverter proporção", "") {
+                                        self.invert_crop_ratio();
+                                    }
+                                });
                                 ui.separator();
                                 ui.menu_button(t("Transformar"), |ui| {
                                 ui.add_enabled_ui(self.jpeg.is_some() && !self.dirty, |ui| {
@@ -2205,9 +2216,9 @@ impl App {
             .show(ctx, |ui| {
                 self.menu_visuals(ui);
                 if self.fullscreen {ui.set_opacity(self.fullscreen_chrome_opacity);}
-                ui.set_width(9.0 * 30.0);
+                ui.set_width(TOOLBAR_WIDTH);
                 ui.spacing_mut().item_spacing = Vec2::ZERO;
-                ui.spacing_mut().interact_size.y = 30.0;
+                ui.spacing_mut().interact_size.y = TOOLBAR_BUTTON_SIZE;
                 egui::Frame::new()
                     .fill(ui.visuals().panel_fill)
                     .show(ui, |ui| {
@@ -2231,6 +2242,9 @@ impl App {
                                     }
                                     if tool_button(ui, "+", loaded) {
                                         self.zoom_by(1.25);
+                                    }
+                                    if tool_button(ui, "Enviar à lixeira", self.path.is_some()) {
+                                        self.confirm_delete(false);
                                     }
                                     if tool_button(ui, "1:1", loaded) {
                                         self.set_fit(Fit::Original);
@@ -2651,7 +2665,9 @@ impl App {
                         });
                     });
                     }
-                    if item(ui,"Inverter proporção",""){self.invert_crop_ratio();}
+                    if !editing && !self.busy && self.selection.is_some() && item(ui, "Inverter proporção", "") {
+                        self.invert_crop_ratio();
+                    }
                     if item(ui,"Aplicar recorte","Enter / Ctrl+Y"){self.apply_crop(ctx);}
                     if item(ui,"Copiar","Ctrl+C"){self.clipboard_copy();}
                     ui.separator();
@@ -3468,7 +3484,14 @@ impl eframe::App for App {
             } else {self.animation_deadline=Instant::now()+self.animation.as_ref().unwrap().frames[self.animation_index].1;}
         }
         self.editor.sync_crop(self.ratio,self.dimensions());
-        if !self.fullscreen {self.editor.panel(ctx,self.image.is_some() && !self.busy && self.loading.is_none(),self.menu_bottom + if self.settings.show_toolbar {30.0} else {0.0});}
+        if !self.fullscreen {
+            let toolbar_height = if self.settings.show_toolbar { TOOLBAR_BUTTON_SIZE } else { 0.0 };
+            self.editor.panel(
+                ctx,
+                self.image.is_some() && !self.busy && self.loading.is_none(),
+                self.menu_bottom + toolbar_height,
+            );
+        }
         if std::mem::take(&mut self.editor.text_requested) {
             if let Some(image)=&self.image {self.editor.text=Some(text_layer::TextLayer::new(image,self.editor.color));self.selection=None;self.slide=false;self.animation_paused=true;ctx.request_repaint();}
         }
@@ -3486,7 +3509,11 @@ impl eframe::App for App {
             if self.ratio.is_some() { self.begin_crop(self.ratio,false); }
             else { self.lossless=false; self.select_entire_image(); }
         }
-        if let Some(ratio)=self.editor.crop_ratio_requested.take() { self.begin_crop(ratio,false); }
+        match self.editor.crop_ratio_requested.take() {
+            Some(editor::CropRatioRequest::Set(ratio)) => self.begin_crop(ratio, false),
+            Some(editor::CropRatioRequest::Invert) => self.invert_crop_ratio(),
+            None => {}
+        }
         if let Some(apply)=self.editor.selection_action.take() {
             if let Some(floating)=self.editor.floating.take() {
                 if apply && floating.offset!=[0,0] {
@@ -3501,7 +3528,10 @@ impl eframe::App for App {
         self.canvas(ctx);
         self.dialogs(ctx);
         if let Some(p) = ctx.input(|i| i.raw.dropped_files.iter().find_map(|f| f.path.clone())) {
-            if !self.busy && !self.editor.pending() {
+            if !self.busy
+                && !self.editor.pending()
+                && !matches!(self.dialog, Some(Dialog::Delete { .. }))
+            {
                 self.open(p);
             }
         }

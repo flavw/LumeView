@@ -5,6 +5,12 @@ use crate::{
 };
 use eframe::egui::{self, Color32, Pos2, Rect, Stroke, Vec2};
 use image::RgbaImage;
+
+pub enum CropRatioRequest {
+    Set(Option<f32>),
+    Invert,
+}
+
 #[derive(Default)]
 pub struct Editor {
     pub enabled: bool,
@@ -13,7 +19,7 @@ pub struct Editor {
     pub text: Option<crate::text_layer::TextLayer>,
     pub text_requested: bool,
     pub crop_requested: bool,
-    pub crop_ratio_requested: Option<Option<f32>>,
+    pub crop_ratio_requested: Option<CropRatioRequest>,
     crop_ratio: Option<f32>,
     crop_dimensions: (u32,u32),
     crop_width: String,
@@ -249,7 +255,7 @@ impl Editor {
             .show_ui(ui,|ui| {
                 for (label,ratio) in crate::RATIOS {
                     if ui.selectable_label(self.crop_ratio == ratio,t(label)).clicked() {
-                        self.crop_ratio_requested = Some(ratio);
+                        self.crop_ratio_requested = Some(CropRatioRequest::Set(ratio));
                         if let Some((w,h)) = label.split_once(':') {
                             self.crop_width = w.into(); self.crop_height = h.into();
                         } else if ratio.is_some() {
@@ -260,7 +266,7 @@ impl Editor {
                 }
                 if ui.selectable_label(false,t("Proporção manual")).clicked() {
                     self.crop_width = "2".into(); self.crop_height = "1".into();
-                    self.crop_ratio_requested = Some(Some(2.0));
+                    self.crop_ratio_requested = Some(CropRatioRequest::Set(Some(2.0)));
                 }
             });
         let width = ui.add(egui::TextEdit::singleline(&mut self.crop_width).desired_width(56.0).hint_text(t("Largura")))
@@ -271,9 +277,13 @@ impl Editor {
         if invert { std::mem::swap(&mut self.crop_width,&mut self.crop_height); }
         if width.changed() || height.changed() || invert {
             if self.crop_width.trim().is_empty() && self.crop_height.trim().is_empty() {
-                self.crop_ratio_requested = Some(None);
+                self.crop_ratio_requested = Some(if invert {
+                    CropRatioRequest::Invert
+                } else {
+                    CropRatioRequest::Set(None)
+                });
             } else if let Some(ratio) = parsed_ratio(&self.crop_width,&self.crop_height) {
-                self.crop_ratio_requested = Some(Some(ratio));
+                self.crop_ratio_requested = Some(CropRatioRequest::Set(Some(ratio)));
             }
         }
     }
