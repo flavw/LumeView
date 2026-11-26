@@ -62,7 +62,7 @@ const FITS: [(&str, Fit); 7] = [
     ("7  Ajustar lado menor", Fit::SmallSide),
 ];
 const TOOLBAR_BUTTON_SIZE: f32 = 30.0;
-const TOOLBAR_WIDTH: f32 = 10.0 * TOOLBAR_BUTTON_SIZE;
+const REQUIRED_TOOLBAR_BUTTONS: usize = 6;
 
 #[derive(Clone, Copy, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 enum Theme {
@@ -72,6 +72,58 @@ enum Theme {
     #[serde(alias = "Blue")]
     Neon,
     System,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+struct ToolbarButtons {
+    open: bool,
+    save: bool,
+    previous: bool,
+    next: bool,
+    recycle: bool,
+    information: bool,
+}
+
+impl Default for ToolbarButtons {
+    fn default() -> Self {
+        Self {
+            open: true,
+            save: false,
+            previous: false,
+            next: false,
+            recycle: true,
+            information: true,
+        }
+    }
+}
+
+impl ToolbarButtons {
+    fn width(&self) -> f32 {
+        let optional_count = [
+            self.open,
+            self.save,
+            self.previous,
+            self.next,
+            self.recycle,
+            self.information,
+        ]
+        .into_iter()
+        .filter(|&visible| visible)
+        .count();
+        (REQUIRED_TOOLBAR_BUTTONS + optional_count) as f32 * TOOLBAR_BUTTON_SIZE
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum SettingsPage {
+    Appearance,
+    Toolbar,
+    Viewing,
+    Fullscreen,
+    Export,
+    Language,
+    Shortcuts,
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -94,6 +146,7 @@ struct Settings {
     ratio: usize,
     slide_seconds: f32,
     show_toolbar: bool,
+    toolbar_buttons: ToolbarButtons,
     show_status_bar: bool,
     show_title_bar: bool,
     auto_restart: bool,
@@ -143,6 +196,7 @@ impl Default for Settings {
             ratio: 3,
             slide_seconds: 4.0,
             show_toolbar: true,
+            toolbar_buttons: ToolbarButtons::default(),
             show_status_bar: false,
             show_title_bar: true,
             auto_restart: true,
@@ -284,7 +338,7 @@ struct App {
     hide_cursor: bool,
     pause_down: bool,
     dialog: Option<Dialog>,
-    settings_page: usize,
+    settings_page: SettingsPage,
     error: Option<String>,
     busy: bool,
     saves: save_guard::SaveGuard,
@@ -392,7 +446,7 @@ impl App {
             chrome_rect: Rect::NOTHING,
             pause_down: false,
             dialog: None,
-            settings_page: 0,
+            settings_page: SettingsPage::Appearance,
             error: None,
             busy: false,
             saves: save_guard::SaveGuard::default(),
@@ -1908,7 +1962,7 @@ impl App {
                     })
                     .sum::<f32>();
                 ui.set_width(if self.settings.show_toolbar {
-                    TOOLBAR_WIDTH
+                    menu_width.max(self.settings.toolbar_buttons.width())
                 } else {
                     menu_width
                 });
@@ -2216,7 +2270,7 @@ impl App {
             .show(ctx, |ui| {
                 self.menu_visuals(ui);
                 if self.fullscreen {ui.set_opacity(self.fullscreen_chrome_opacity);}
-                ui.set_width(TOOLBAR_WIDTH);
+                ui.set_width(self.settings.toolbar_buttons.width());
                 ui.spacing_mut().item_spacing = Vec2::ZERO;
                 ui.spacing_mut().interact_size.y = TOOLBAR_BUTTON_SIZE;
                 egui::Frame::new()
@@ -2231,10 +2285,24 @@ impl App {
                             |ui| {
                                 ui.horizontal(|ui| {
                                     let loaded = self.image.is_some();
-                                    if tool_button(ui, "Anterior", !self.files.is_empty()) {
+                                    if self.settings.toolbar_buttons.open
+                                        && tool_button(ui, "Abrir", true)
+                                    {
+                                        self.choose_open();
+                                    }
+                                    if self.settings.toolbar_buttons.save
+                                        && tool_button(ui, "Salvar", loaded)
+                                    {
+                                        self.save_original();
+                                    }
+                                    if self.settings.toolbar_buttons.previous
+                                        && tool_button(ui, "Anterior", !self.files.is_empty())
+                                    {
                                         self.navigate(-1);
                                     }
-                                    if tool_button(ui, "Próxima", !self.files.is_empty()) {
+                                    if self.settings.toolbar_buttons.next
+                                        && tool_button(ui, "Próxima", !self.files.is_empty())
+                                    {
                                         self.navigate(1);
                                     }
                                     if tool_button(ui, "−", loaded) {
@@ -2243,7 +2311,9 @@ impl App {
                                     if tool_button(ui, "+", loaded) {
                                         self.zoom_by(1.25);
                                     }
-                                    if tool_button(ui, "Enviar à lixeira", self.path.is_some()) {
+                                    if self.settings.toolbar_buttons.recycle
+                                        && tool_button(ui, "Enviar à lixeira", self.path.is_some())
+                                    {
                                         self.confirm_delete(false);
                                     }
                                     if tool_button(ui, "1:1", loaded) {
@@ -2268,7 +2338,9 @@ impl App {
                                         self.slide = !self.slide;
                                         self.last_slide = Instant::now();
                                     }
-                                    if tool_button(ui, "Informações da imagem", loaded) {
+                                    if self.settings.toolbar_buttons.information
+                                        && tool_button(ui, "Informações da imagem", loaded)
+                                    {
                                         self.show_information();
                                     }
                                 });
@@ -3045,15 +3117,23 @@ impl App {
                     ui.horizontal_top(|ui| {
                         ui.set_max_height(400.0);
                         ui.allocate_ui_with_layout(Vec2::new(170.0,400.0),egui::Layout::top_down(egui::Align::Min),|ui|{
-                            for (index,name) in ["Aparência","Visualização","Tela cheia / Apresentação","Exportação","Idioma","Atalhos"].iter().enumerate(){
-                                ui.selectable_value(&mut self.settings_page,index,t(name));
+                            for (page, label) in [
+                                (SettingsPage::Appearance, "Aparência"),
+                                (SettingsPage::Toolbar, "Barra de ferramentas"),
+                                (SettingsPage::Viewing, "Visualização"),
+                                (SettingsPage::Fullscreen, "Tela cheia / Apresentação"),
+                                (SettingsPage::Export, "Exportação"),
+                                (SettingsPage::Language, "Idioma"),
+                                (SettingsPage::Shortcuts, "Atalhos"),
+                            ] {
+                                ui.selectable_value(&mut self.settings_page, page, t(label));
                             }
                         });
                         ui.add_sized([1.0,400.0],egui::Separator::default().vertical());
                         ui.allocate_ui_with_layout(Vec2::new(560.0,400.0),egui::Layout::top_down(egui::Align::Min),|ui|{
                             egui::ScrollArea::vertical().max_height(400.0).show(ui,|ui|{
                                 match self.settings_page {
-                                    0=>{
+                                    SettingsPage::Appearance => {
                                         ui.heading(t("Aparência"));ui.separator();
                                         ui.checkbox(&mut self.settings.checkerboard,t("Fundo quadriculado para transparência"));
                                         ui.label(t("Transparência dos menus"));
@@ -3062,7 +3142,18 @@ impl App {
                                         for (theme,name) in [(Theme::Dark,"Escuro"),(Theme::Light,"Claro"),(Theme::Neon,"Neon + preto"),(Theme::System,"Sistema")]{if ui.radio_value(&mut self.settings.theme,theme,t(name)).clicked() && theme==Theme::Neon {self.settings.screen_color=[0,0,0];}}
                                         if self.settings.theme==Theme::Neon {ui.horizontal(|ui| {ui.label(t("Cor neon"));preferences::color_button(ui,&t("Escolher"),&mut self.settings.neon_color);});}
                                     }
-                                    1=>{
+                                    SettingsPage::Toolbar => {
+                                        ui.heading(t("Barra de ferramentas"));
+                                        ui.separator();
+                                        let buttons = &mut self.settings.toolbar_buttons;
+                                        ui.checkbox(&mut buttons.open, t("Abrir"));
+                                        ui.checkbox(&mut buttons.save, t("Salvar"));
+                                        ui.checkbox(&mut buttons.previous, t("Anterior"));
+                                        ui.checkbox(&mut buttons.next, t("Próxima"));
+                                        ui.checkbox(&mut buttons.recycle, t("Enviar à lixeira"));
+                                        ui.checkbox(&mut buttons.information, t("Informações da imagem"));
+                                    }
+                                    SettingsPage::Viewing => {
                                         ui.heading(t("Visualização"));ui.separator();
                                         ui.checkbox(&mut self.settings.auto_restart,t("Reiniciar automaticamente ao chegar ao fim da pasta"));
                                         let mut top_left=self.settings.zoom_top_left;
@@ -3070,7 +3161,7 @@ impl App {
                                         ui.separator();ui.label(t("Modo inicial"));
                                         for (label,fit) in FITS {ui.radio_value(&mut self.settings.fit,fit,t(label));}
                                     }
-                                    2=>{
+                                    SettingsPage::Fullscreen => {
                                         ui.heading(t("Tela cheia / Apresentação"));ui.separator();ui.label(t("Modo de zoom (1–7)"));
                                         for (label,fit) in FITS {if ui.radio(self.wheel_fit==fit,t(label)).clicked(){self.set_fit(fit);}}
                                         ui.separator();
@@ -3084,12 +3175,12 @@ impl App {
                                         ui.checkbox(&mut self.hide_cursor,t("Ocultar cursor em tela cheia (F11)"));
                                         ui.horizontal(|ui|{ui.label(t("Intervalo da apresentação"));ui.add(egui::DragValue::new(&mut self.settings.slide_seconds).range(1.0..=30.0).speed(0.5));ui.label(t("segundos"));});
                                     }
-                                    3=>{
+                                    SettingsPage::Export => {
                                         ui.heading(t("Qualidade de exportação"));ui.separator();
                                         ui.label("JPEG");ui.add(egui::Slider::new(&mut self.settings.jpeg_quality,1..=100).suffix("%"));
                                         ui.label("WebP");ui.add(egui::Slider::new(&mut self.settings.webp_quality,1..=100).suffix("%"));
                                     }
-                                    5=>{
+                                    SettingsPage::Shortcuts => {
                                         ui.heading(t("Atalhos personalizáveis"));ui.separator();
                                         ui.label(t("Digite a tecla ou combinação, por exemplo Alt+K ou Ctrl+Shift+R."));
                                         ui.small(t("Navegação, área de transferência, Esc e Enter mantêm os atalhos padrão."));
@@ -3103,7 +3194,7 @@ impl App {
                                         if !keymap::validation(&self.settings.shortcuts) {ui.colored_label(Color32::RED,t("Atalho inválido, reservado ou repetido. Os padrões serão usados até corrigir."));}
                                         if ui.button(t("Restaurar atalhos padrão")).clicked() {self.settings.shortcuts.clear();}
                                     }
-                                    _=>{
+                                    SettingsPage::Language => {
                                         ui.heading(t("Idioma"));ui.separator();
                                         ui.radio_value(&mut self.settings.language,Language::English,"English");
                                         ui.radio_value(&mut self.settings.language,Language::Spanish,"Español");
@@ -3632,6 +3723,45 @@ fn main() -> eframe::Result<()> {
 #[cfg(test)]
 mod settings_tests {
     use super::*;
+    #[test]
+    fn toolbar_button_defaults_apply_to_existing_settings() {
+        let settings: Settings = serde_json::from_str(r#"{"show_toolbar":true}"#).unwrap();
+        let buttons = settings.toolbar_buttons;
+        assert!(settings.show_toolbar);
+        assert!(buttons.open && buttons.recycle && buttons.information);
+        assert!(!buttons.save && !buttons.previous && !buttons.next);
+        assert_eq!(buttons.width(), 9.0 * TOOLBAR_BUTTON_SIZE);
+
+        let saved: Settings = serde_json::from_str(
+            r#"{"toolbar_buttons":{"open":false,"next":true}}"#,
+        )
+        .unwrap();
+        assert!(!saved.toolbar_buttons.open);
+        assert!(saved.toolbar_buttons.next && saved.toolbar_buttons.recycle);
+        assert!(!saved.toolbar_buttons.previous);
+    }
+
+    #[test]
+    fn toolbar_buttons_can_be_saved_independently() {
+        let settings = Settings {
+            toolbar_buttons: ToolbarButtons {
+                open: false,
+                save: true,
+                previous: true,
+                next: false,
+                recycle: false,
+                information: false,
+            },
+            ..Settings::default()
+        };
+        let saved = serde_json::to_string(&settings).unwrap();
+        let restored: Settings = serde_json::from_str(&saved).unwrap();
+        let buttons = restored.toolbar_buttons;
+        assert!(buttons.save && buttons.previous);
+        assert!(!buttons.open && !buttons.next && !buttons.recycle && !buttons.information);
+        assert_eq!(buttons.width(), 8.0 * TOOLBAR_BUTTON_SIZE);
+    }
+
     #[test]
     fn old_settings_keep_opaque_menus_and_transparency_persists() {
         let mut settings: Settings = serde_json::from_str("{}").unwrap();
